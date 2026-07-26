@@ -48,9 +48,17 @@
       <input type="file" id="fileXlsx" accept=".xlsx,.xlsm,.csv" hidden />
       <input type="file" id="fileKmz" accept=".kmz,.kml" hidden />
     </div>
-    <button class="btn btn-primary" id="btnExportPdf" type="button" title="Gerar relatório em PDF com os filtros aplicados">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l5 5v13H6V3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v6h6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 14h6M9 17.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    Exportar PDF</button>
+    <div class="actionbar__right">
+      <button class="btn btn-soft" id="btnExportXlsx" type="button" title="Baixar os dados filtrados em Excel (.xlsx)">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4V4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 9h16M9 9v11" stroke="currentColor" stroke-width="2"/><path d="m12.5 12 4 5m0-5-4 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Exportar Excel</button>
+      <button class="btn btn-soft" id="btnExportKmz" type="button" title="Baixar o KMZ do mapa conforme o filtro aplicado">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11Z" stroke="currentColor" stroke-width="2"/><path d="M12 7v6m0 0-2.5-2.5M12 13l2.5-2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Exportar KMZ</button>
+      <button class="btn btn-primary" id="btnExportPdf" type="button" title="Gerar relatório em PDF com os filtros aplicados">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l5 5v13H6V3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v6h6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 14h6M9 17.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Exportar PDF</button>
+    </div>
   </section>
 
   <!-- ================= FILTROS ================= -->

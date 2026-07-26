@@ -19,9 +19,11 @@ python -m http.server 8123
 |---|---|
 | **Filtros** | Período de lançamento, macrozona, bairro, incorporadora, tipo, tipologia e faixa de m² (multi-seleção com busca). Tudo recalcula em tempo real: KPIs, mapa, gráficos, matriz e tabela. |
 | **Exportar PDF** | Botão *Exportar PDF* gera relatório A4 paisagem respeitando os filtros ativos: capa com logo + chips de filtros, página de síntese (KPIs + gráficos) e radar paginado. |
+| **Exportar Excel** | Botão *Exportar Excel* baixa um `.xlsx` com os dados filtrados em 5 abas: Resumo (KPIs + filtros), Radar, Tipologias, Oferta mensal e Oferta por empreendimento. |
+| **Exportar KMZ** | Botão *Exportar KMZ* baixa o mapa **conforme o filtro**: marcadores dos empreendimentos filtrados + terrenos e localizações do KMZ vinculados a eles (abre no Google Earth/Maps). |
 | **Importar Excel** | Botão *Importar Excel* lê a base `Projecao_OF.xlsx` (mesmo esquema de colunas) e reconstrói todo o dashboard no navegador. |
 | **Importar KMZ** | Botão *Importar KMZ* lê o `.kmz`/`.kml` (Google Earth) e redesenha terrenos (polígonos) e localizações (pontos) com as cores originais. |
-| **Mapa georreferenciado** | Leaflet com 3 camadas: empreendimentos da oferta futura (filtráveis, popup com ficha), terrenos do KMZ e localizações do KMZ. |
+| **Mapa georreferenciado** | Leaflet com 3 camadas: empreendimentos da oferta futura (filtráveis, popup com ficha), terrenos do KMZ e localizações do KMZ. Cada geometria do KMZ é **vinculada ao empreendimento** (polígono que contém o ponto, nome igual ou proximidade ≤300 m): com filtro ativo, o mapa mostra apenas os terrenos/localizações dos empreendimentos filtrados. |
 | **Radar de empreendimentos** | Tabela no novo design (links de portal/projeto, ordenação por coluna, busca). *Hover* em uma linha abre o tooltip de ficha; clique no nome fixa a ficha em modal. |
 | **Ficha do empreendimento** | Tooltip no novo design: origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
 | **Edição pelo lápis ✎** | Títulos e textos têm lápis de edição (portado do leadsebm2.0). Senha: `123`. As edições persistem no `localStorage`. |

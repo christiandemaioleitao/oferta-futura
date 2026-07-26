@@ -188,6 +188,52 @@ function renderKPIs() {
   $('#footUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—') + ' · Fonte: ' + (DATA.fonte || 'base importada');
 }
 
+/* ---------- vínculo KMZ ↔ empreendimento ---------- */
+function pointInPoly(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function distM(lat1, lng1, lat2, lng2) {
+  const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function linkKmzFeatures() {
+  const emps = DATA.empreendimentos.filter(e => e.lat != null && e.lng != null);
+  (MAPA.features || []).forEach(f => {
+    const p = f.properties = f.properties || {};
+    p._empId = null;
+    if (f.geometry.type === 'Polygon') {
+      const ring = f.geometry.coordinates[0];
+      let hit = emps.find(e => pointInPoly(e.lng, e.lat, ring));
+      if (!hit) hit = emps.find(e => textKey(e.empreendimento) === textKey(p.name));
+      if (!hit) {
+        const cx = ring.reduce((s, c) => s + c[0], 0) / ring.length, cy = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+        let bestD = 300;
+        emps.forEach(e => { const d = distM(cy, cx, e.lat, e.lng); if (d < bestD) { bestD = d; hit = e; } });
+      }
+      if (hit) p._empId = hit.id;
+    } else if (f.geometry.type === 'Point') {
+      const [lng, lat] = f.geometry.coordinates;
+      const byName = emps.find(e => textKey(e.empreendimento) === textKey(p.name));
+      if (byName) { p._empId = byName.id; return; }
+      let best = null, bestD = 250;
+      emps.forEach(e => { const d = distM(lat, lng, e.lat, e.lng); if (d < bestD) { bestD = d; best = e; } });
+      if (best) p._empId = best.id;
+    }
+  });
+}
+function anyFilterActive() { return !!(state.from || state.to || Object.values(state).some(v => v instanceof Set && v.size)); }
+function visibleKmzFeatures() {
+  const ids = new Set(filtered.map(e => e.id));
+  const filterOn = anyFilterActive();
+  return (MAPA.features || []).filter(f => f.properties._empId ? ids.has(f.properties._empId) : !filterOn);
+}
+
 /* ---------- mapa ---------- */
 let map, empLayer, terrenoLayer, pontoLayer;
 function initMap() {
@@ -205,23 +251,27 @@ function initMap() {
 }
 function renderKmzLayers() {
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
-  (MAPA.features || []).forEach(f => {
+  const empById = Object.fromEntries(DATA.empreendimentos.map(e => [e.id, e]));
+  visibleKmzFeatures().forEach(f => {
     const p = f.properties || {};
+    const emp = p._empId ? empById[p._empId] : null;
+    const sub = emp ? escapeHtml(emp.empreendimento) + ' · ' : '';
     if (f.geometry.type === 'Polygon') {
       const latlngs = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
       L.polygon(latlngs, { color: p.stroke || BLUE, weight: 1.6, fillColor: p.fill || BLUE, fillOpacity: .28 })
-        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">TERRENO · ${escapeHtml(p.folder || '')}</span></div>`)
+        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}TERRENO</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
         .addTo(terrenoLayer);
     } else if (f.geometry.type === 'Point') {
       const [lng, lat] = f.geometry.coordinates;
       L.circleMarker([lat, lng], { radius: 5, color: '#fff', weight: 1.4, fillColor: p.color || BLUE, fillOpacity: .9 })
-        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">LOCALIZAÇÃO · KMZ</span></div>`)
+        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}LOCALIZAÇÃO · KMZ</span></div>`)
         .addTo(pontoLayer);
     }
   });
 }
 function renderMap() {
   if (!map) return;
+  renderKmzLayers();
   empLayer.clearLayers();
   const pts = [];
   filtered.forEach(e => {
@@ -484,6 +534,7 @@ function importXlsx(file) {
       const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
       if (!rows.length) throw new Error('planilha vazia');
       DATA = rebuildFromRows(rows, file.name);
+      linkKmzFeatures();
       buildFilters(); Object.keys(state).forEach(k => state[k] instanceof Set && state[k].clear());
       applyAll();
       st.textContent = `BASE ATUALIZADA · ${DATA.empreendimentos.length} EMPREENDIMENTOS · ${rows.length.toLocaleString('pt-BR')} LINHAS`;
@@ -545,6 +596,7 @@ async function importKmz(file) {
       kmlText = await entry.async('text');
     }
     MAPA = parseKml(kmlText);
+    linkKmzFeatures();
     renderKmzLayers();
     st.textContent = `MAPA ATUALIZADO · ${MAPA.features.length} GEOMETRIAS DO KMZ`;
   } catch (err) {
@@ -647,6 +699,106 @@ async function exportPdf() {
   }
 }
 $('#btnExportPdf').onclick = exportPdf;
+
+/* ---------- exportação Excel ---------- */
+function exportXlsx() {
+  const st = $('#importStatus');
+  const wb = XLSX.utils.book_new();
+  const m = salesAverages(filtered);
+  const status = e => textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO';
+  // Resumo
+  const resumo = [
+    ['Relatório', 'Oferta Futura — EBM Inteligência'],
+    ['Emitido em', new Date().toLocaleString('pt-BR')],
+    ['Fonte da base', DATA.fonte || '—'],
+    ['Filtros ativos', filtersSummaryText()],
+    [],
+    ['Empreendimentos', filtered.length],
+    ['Total de unidades', filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0)],
+    ['Área de terreno (m²)', Math.round(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))],
+    ['Média mensal vendas (mercado)', m.avg == null ? '—' : +m.avg.toFixed(2)],
+    ['Média mensal vendas deflacionada', m.defl == null ? '—' : +m.defl.toFixed(2)],
+    ['Janela de lançamento', launchWindowLabel(filtered)],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo');
+  // Radar
+  const radar = sortedRows().map(e => ({
+    'Empreendimento': e.empreendimento, 'Lançamento': (e.dtLancamento || '').slice(0, 7), 'Status': status(e),
+    'Incorporadora': e.incorporadora, 'Bairro': e.bairro, 'Macrozona': mzLabel(e.macrozona), 'Tipo': e.tipo,
+    'M² Terreno': e.areaTerreno, 'Total Unidades': e.totalUnidades, 'Cluster': e.cluster,
+    'Protocolo': e.dataProtocolo || '', 'Aprovação': (e.dataAprovacao || '').slice(0, 10),
+    'Endereço': [e.logradouro, e.complemento].filter(Boolean).join(', '), 'Cidade': e.cidade, 'UF': e.uf,
+    'Fonte Empreendimento': e.fonteEmpreendimento, 'Fonte Data Lançamento': e.fonteDataLancamento,
+    'Link Portal': e.linkPortal || '', 'Link Projeto': e.linkProjeto || '',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(radar), 'Radar');
+  // Tipologias
+  const tip = filtered.flatMap(e => (e.tipologias || []).map(t => ({
+    'Empreendimento': e.empreendimento, 'Incorporadora': e.incorporadora, 'Bairro': e.bairro,
+    'Tipologia': t.tipologia, 'Dormitórios': t.tratada, 'Unidades': t.unids, 'Área privativa (m²)': t.area,
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tip), 'Tipologias');
+  // Oferta mensal (agregada + por empreendimento)
+  const agg = monthlySeries(filtered).map(([mes, disp]) => ({ 'Mês': mes, 'Unidades disponíveis (total)': Math.round(disp) }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(agg), 'Oferta mensal');
+  const porEmp = filtered.flatMap(e => (e.mensal || []).map(x => ({
+    'Empreendimento': e.empreendimento, 'Mês': x.m, 'Disponíveis': x.disp, 'Vendidas no mês': x.vend, 'Distratadas no mês': x.distr,
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(porEmp), 'Oferta por empreendimento');
+  XLSX.writeFile(wb, `Oferta_Futura_Dados_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  if (st) st.textContent = `EXCEL EXPORTADO · ${filtered.length} EMPREENDIMENTOS`;
+}
+$('#btnExportXlsx').onclick = exportXlsx;
+
+/* ---------- exportação KMZ ---------- */
+function hexToKml(hex, alpha) { // #rrggbb -> aabbggrr
+  const h = (hex || '#3A5AA0').replace('#', '');
+  return alpha + h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2);
+}
+const xmlEsc = s => String(s ?? '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+async function exportKmz() {
+  const st = $('#importStatus');
+  const feats = visibleKmzFeatures();
+  const empById = Object.fromEntries(DATA.empreendimentos.map(e => [e.id, e]));
+  const pmPoly = [], pmPoint = [];
+  feats.forEach((f, i) => {
+    const p = f.properties, emp = p._empId ? empById[p._empId] : null;
+    const desc = emp ? `${emp.empreendimento} · ${emp.incorporadora || ''} · ${emp.bairro || ''} · Lançamento ${(emp.dtLancamento || '—').slice(0, 7)}` : (p.folder || '');
+    if (f.geometry.type === 'Polygon') {
+      const coords = f.geometry.coordinates[0].map(c => `${c[0]},${c[1]},0`).join(' ');
+      pmPoly.push(`<Placemark><name>${xmlEsc(p.name)}</name><description>${xmlEsc(desc)}</description>
+<Style><LineStyle><color>${hexToKml(p.stroke || p.fill, 'ff')}</color><width>2</width></LineStyle><PolyStyle><color>${hexToKml(p.fill || p.stroke, '96')}</color></PolyStyle></Style>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>${coords}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`);
+    } else if (f.geometry.type === 'Point') {
+      const [lng, lat] = f.geometry.coordinates;
+      pmPoint.push(`<Placemark><name>${xmlEsc(p.name)}</name><description>${xmlEsc(desc)}</description>
+<Style><IconStyle><color>${hexToKml(p.color, 'ff')}</color><Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href></Icon></IconStyle></Style>
+<Point><coordinates>${lng},${lat},0</coordinates></Point></Placemark>`);
+    }
+  });
+  // empreendimentos filtrados (marcadores vermelhos da oferta futura)
+  const pmEmp = filtered.filter(e => e.lat != null && e.lng != null).map(e => `<Placemark><name>${xmlEsc(e.empreendimento)}</name>
+<description>${xmlEsc([e.incorporadora, e.bairro, 'Lançamento ' + (e.dtLancamento || '—').slice(0, 7), fmtInt(e.totalUnidades) + ' unidades'].filter(Boolean).join(' · '))}</description>
+<Style><IconStyle><color>ff120ae3</color><Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon></IconStyle></Style>
+<Point><coordinates>${e.lng},${e.lat},0</coordinates></Point></Placemark>`);
+  const docName = 'Oferta Futura — ' + (anyFilterActive() ? filtersSummaryText() : 'todos os empreendimentos');
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(docName)}</name>
+<Folder><name>Oferta Futura (empreendimentos)</name>${pmEmp.join('\n')}</Folder>
+<Folder><name>Terrenos</name>${pmPoly.join('\n')}</Folder>
+<Folder><name>Localizações</name>${pmPoint.join('\n')}</Folder>
+</Document></kml>`;
+  const zip = new JSZip();
+  zip.file('doc.kml', kml);
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Oferta_Futura_Mapa_${new Date().toISOString().slice(0, 10)}.kmz`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  if (st) st.textContent = `KMZ EXPORTADO · ${pmEmp.length} EMPREENDIMENTOS · ${pmPoly.length} TERRENOS · ${pmPoint.length} LOCALIZAÇÕES`;
+}
+$('#btnExportKmz').onclick = exportKmz;
 
 /* ---------- limpar filtros ---------- */
 $('#btnClearFilters').onclick = () => {
@@ -823,6 +975,7 @@ function initAIChat() {
 
 /* ---------- init ---------- */
 makeField($('#headerNet'), { w: 1400, h: 190, n: 30, color: NAVY7, dist: 220, lineOp: .5, dotOp: .55 });
+linkKmzFeatures();
 buildFilters();
 initMap();
 applyAll();
