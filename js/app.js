@@ -387,8 +387,6 @@ function renderRadar() {
     <td class="rt-num">${fmtInt(e.totalUnidades)}</td>
   </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:30px">Nenhum empreendimento para os filtros atuais.</td></tr>`;
   $$('#radarBody tr[data-id]').forEach(tr => {
-    tr.addEventListener('mouseenter', () => showFichaTip(tr));
-    tr.addEventListener('mouseleave', scheduleHideFicha);
     tr.querySelector('.rt-name')?.addEventListener('click', () => openFichaModal(tr.dataset.id));
   });
   const ind = $('#radarTable .sort-ind'); if (ind) ind.remove();
@@ -438,24 +436,6 @@ function fillFicha(e) {
   $('#fUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—');
   makeField($('#fichaNet'), { w: 500, h: 150, n: 12, color: '#AEBFDE', dist: 170, lineOp: .5, dotOp: .6 });
 }
-function showFichaTip(tr) {
-  if (fichaModal) return;
-  clearTimeout(fichaTimer);
-  const e = DATA.empreendimentos.find(x => x.id === tr.dataset.id);
-  if (!e) return;
-  const f = $('#ficha');
-  fillFicha(e);
-  f.hidden = false; f.classList.add('as-tip');
-  const r = tr.getBoundingClientRect(), fw = Math.min(760, window.innerWidth * .94);
-  let left = Math.min(Math.max(r.left + 40, 12), window.innerWidth - fw - 12);
-  f.style.left = left + 'px';
-  f.style.width = fw + 'px';
-  const fh = Math.min(f.scrollHeight, window.innerHeight * .88);
-  let top = r.bottom + 10;
-  if (top + fh > window.innerHeight - 10) top = Math.max(10, r.top - fh - 10);
-  f.style.top = top + 'px';
-}
-function scheduleHideFicha() { if (fichaModal) return; clearTimeout(fichaTimer); fichaTimer = setTimeout(() => { $('#ficha').hidden = true; }, 120); }
 function openFichaModal(id) {
   const e = DATA.empreendimentos.find(x => x.id === id);
   if (!e) return;
@@ -1197,6 +1177,3 @@ initMap();
 applyAll();
 initEditableText();
 initAIChat();
-const ficha = $('#ficha');
-ficha.addEventListener('mouseenter', () => clearTimeout(fichaTimer));
-ficha.addEventListener('mouseleave', scheduleHideFicha);

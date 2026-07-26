@@ -1,0 +1,65 @@
+name: Pipeline Oferta Futura
+
+on:
+  workflow_dispatch:
+    inputs:
+      of_lancto_ini:
+        description: "Lançamentos OF - início (mm/aaaa)"
+        default: "01/2026"
+      of_lancto_fim:
+        description: "Lançamentos OF - fim (mm/aaaa)"
+        default: "12/2027"
+      data_fim_proj:
+        description: "Data final da projeção da síntese (mm/aaaa)"
+        default: "06/2027"
+      fator_ajuste:
+        description: "Fator multiplicador da curva"
+        default: "1.0"
+  schedule:
+    # Todo dia às 06:00 de Brasília (09:00 UTC)
+    - cron: "0 9 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pipeline-of
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install pandas numpy openpyxl pymssql "psycopg2-binary"
+
+      - name: Rodar pipeline
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          SQLSERVER_HOST: ${{ secrets.SQLSERVER_HOST }}
+          SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
+          SQLSERVER_USER: ${{ secrets.SQLSERVER_USER }}
+          SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
+          OF_LANCTO_INI: ${{ github.event.inputs.of_lancto_ini || '01/2026' }}
+          OF_LANCTO_FIM: ${{ github.event.inputs.of_lancto_fim || '12/2027' }}
+          DATA_FIM_PROJ: ${{ github.event.inputs.data_fim_proj || '06/2027' }}
+          FATOR_AJUSTE: ${{ github.event.inputs.fator_ajuste || '1.0' }}
+        run: python scripts/pipeline_of.py
+
+      - name: Commitar dados atualizados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/dados_of.js data/mapa_of.js
+          if git diff --cached --quiet; then
+            echo "Sem mudanças nos dados."
+          else
+            git commit -m "chore: atualiza dados do dashboard via pipeline"
+            git push
+          fi
