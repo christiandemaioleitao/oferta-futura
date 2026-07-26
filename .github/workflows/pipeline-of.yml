@@ -54,8 +54,9 @@ jobs:
 
       - name: Commitar dados atualizados
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # autor = dono da conta Vercel, senão o deploy automático é bloqueado (Hobby)
+          git config user.name "Christian Leitao"
+          git config user.email "christiandemaio80@gmail.com"
           git add data/dados_of.js data/mapa_of.js
           if git diff --cached --quiet; then
             echo "Sem mudanças nos dados."
