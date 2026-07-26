@@ -55,6 +55,9 @@
       <button class="btn btn-soft" id="btnExportKmz" type="button" title="Baixar o KMZ do mapa conforme o filtro aplicado">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11Z" stroke="currentColor" stroke-width="2"/><path d="M12 7v6m0 0-2.5-2.5M12 13l2.5-2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Exportar KMZ</button>
+      <button class="btn btn-primary" id="btnExportDeck" type="button" title="Gerar apresentação em PDF: 1 slide por macrozona, faixa de m² e segmento">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="12" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M12 16v3m-4 2 4-2 4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 12l3-3 2.2 2L16 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      PDF Apresentação</button>
       <button class="btn btn-primary" id="btnExportPdf" type="button" title="Gerar relatório em PDF com os filtros aplicados">
         <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l5 5v13H6V3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v6h6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 14h6M9 17.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Exportar PDF</button>
@@ -234,6 +237,7 @@
 <script src="data/dados_of.js"></script>
 <script src="data/mapa_of.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.5.0/dist/leaflet-simple-map-screenshoter.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>

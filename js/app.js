@@ -228,19 +228,23 @@ function linkKmzFeatures() {
   });
 }
 function anyFilterActive() { return !!(state.from || state.to || Object.values(state).some(v => v instanceof Set && v.size)); }
+let forceKmzFilter = false; // durante capturas da apresentação, esconde geometrias sem vínculo
 function visibleKmzFeatures() {
   const ids = new Set(filtered.map(e => e.id));
-  const filterOn = anyFilterActive();
+  const filterOn = forceKmzFilter || anyFilterActive();
   return (MAPA.features || []).filter(f => f.properties._empId ? ids.has(f.properties._empId) : !filterOn);
 }
 
 /* ---------- mapa ---------- */
-let map, empLayer, terrenoLayer, pontoLayer;
+let map, empLayer, terrenoLayer, pontoLayer, baseTiles, screenshoter;
 function initMap() {
-  map = L.map('map', { scrollWheelZoom: true }).setView([-16.68, -49.26], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
+  baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap · &copy; CARTO', crossOrigin: true, maxZoom: 19,
   }).addTo(map);
+  if (window.SimpleMapScreenshoter || L.simpleMapScreenshoter) {
+    try { screenshoter = L.simpleMapScreenshoter({ hidden: true, mimeType: 'image/jpeg' }).addTo(map); } catch (e) { console.warn('screenshoter indisponível', e); }
+  }
   empLayer = L.layerGroup().addTo(map);
   terrenoLayer = L.layerGroup().addTo(map);
   pontoLayer = L.layerGroup();
@@ -615,6 +619,7 @@ async function exportPdf() {
   overlay.hidden = false;
   try {
     status.textContent = 'MONTANDO RELATÓRIO…';
+    await ensureLogo();
     const stage = $('#pdfStage');
     stage.innerHTML = '';
     const m = salesAverages(filtered);
@@ -626,7 +631,7 @@ async function exportPdf() {
     cover.className = 'pdf-page pdf-cover';
     cover.innerHTML = `<svg class="pdf-net" id="pdfNet" preserveAspectRatio="xMidYMid slice"></svg>
       <div style="position:relative">
-        <div style="display:inline-flex;background:#fff;border-radius:12px;padding:14px 20px;margin-bottom:34px"><img src="assets/logo-full.png" style="height:46px" /></div>
+        <div style="display:inline-block;background:#fff;border-radius:12px;padding:14px 20px;margin-bottom:34px"><img src="${logoSrc()}" style="height:46px;width:100px;display:inline" /></div>
         <div class="eyebrow">EBM INTELIGÊNCIA — RELATÓRIO EXECUTIVO</div>
         <h1>${escapeHtml(title)}</h1>
         <div class="pdf-filters">${chips}</div>
@@ -682,6 +687,7 @@ async function exportPdf() {
     // renderizar
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    await decodeStageImages(stage);
     const pagesEls = [...stage.children];
     for (let i = 0; i < pagesEls.length; i++) {
       status.textContent = `RENDERIZANDO PÁGINA ${i + 1}/${pagesEls.length}…`;
@@ -699,6 +705,216 @@ async function exportPdf() {
   }
 }
 $('#btnExportPdf').onclick = exportPdf;
+
+/* ---------- exportação PDF Apresentação ---------- */
+let LOGO_DATA = null; // logo em data-URL p/ render confiável no html2canvas
+function ensureLogo() {
+  if (LOGO_DATA) return Promise.resolve();
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        LOGO_DATA = c.toDataURL('image/png');
+      } catch (e) { console.warn(e); }
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = 'assets/logo-full.png';
+  });
+}
+ensureLogo();
+const logoSrc = () => LOGO_DATA || 'assets/logo-full.png';
+const MESES_MIN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const mesAno = m => m ? MESES_MIN[+m.slice(5, 7) - 1] + '/' + m.slice(0, 4) : '—';
+function periodoLabel() {
+  let a = state.from, b = state.to;
+  if (!a || !b) {
+    const ms = filtered.map(e => (e.dtLancamento || '').slice(0, 7)).filter(Boolean).sort();
+    if (!a) a = ms[0]; if (!b) b = ms[ms.length - 1];
+  }
+  if (!a && !b) return '—';
+  return `${mesAno(a)} – ${mesAno(b)}`;
+}
+/* mapa estático em canvas (web mercator + tiles CARTO) — captura determinística p/ slides */
+const lngToX = (lng, z) => (lng + 180) / 360 * 256 * 2 ** z;
+const latToY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
+function loadTile(url) {
+  return new Promise(res => { const img = new Image(); img.crossOrigin = 'anonymous'; img.onload = () => res(img); img.onerror = () => res(null); img.src = url; });
+}
+async function captureMapFor(emps, W = 1560, H = 900) {
+  const ids = new Set(emps.map(e => e.id));
+  const polys = (MAPA.features || []).filter(f => f.geometry.type === 'Polygon' && ids.has(f.properties._empId));
+  const pts = emps.filter(e => e.lat != null && e.lng != null);
+  if (!pts.length && !polys.length) return null;
+  // bbox
+  let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+  const feed = (lat, lng) => { minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); };
+  pts.forEach(e => feed(e.lat, e.lng));
+  polys.forEach(f => f.geometry.coordinates[0].forEach(c => feed(c[1], c[0])));
+  const padLat = Math.max((maxLat - minLat) * .16, .004), padLng = Math.max((maxLng - minLng) * .16, .004);
+  minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
+  // zoom que encaixa o bbox
+  let z = 16;
+  while (z > 3 && (lngToX(maxLng, z) - lngToX(minLng, z) > W || latToY(minLat, z) - latToY(maxLat, z) > H)) z--;
+  const cx = (lngToX(minLng, z) + lngToX(maxLng, z)) / 2, cy = (latToY(maxLat, z) + latToY(minLat, z)) / 2;
+  const x0 = cx - W / 2, y0 = cy - H / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#E9EDF3'; ctx.fillRect(0, 0, W, H);
+  // tiles
+  const t0x = Math.floor(x0 / 256), t1x = Math.floor((x0 + W) / 256), t0y = Math.floor(y0 / 256), t1y = Math.floor((y0 + H) / 256);
+  const jobs = [];
+  for (let tx = t0x; tx <= t1x; tx++) for (let ty = t0y; ty <= t1y; ty++) {
+    if (tx < 0 || ty < 0 || tx >= 2 ** z || ty >= 2 ** z) continue;
+    jobs.push(loadTile(`https://a.basemaps.cartocdn.com/light_all/${z}/${tx}/${ty}@2x.png`).then(img => {
+      if (img) ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0, 256, 256);
+    }));
+  }
+  await Promise.all(jobs);
+  const px = (lng, lat) => [lngToX(lng, z) - x0, latToY(lat, z) - y0];
+  // terrenos (polígonos do KMZ vinculados ao filtro)
+  polys.forEach(f => {
+    const p = f.properties;
+    ctx.beginPath();
+    f.geometry.coordinates[0].forEach((c, i) => { const [x, y] = px(c[0], c[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.closePath();
+    ctx.fillStyle = (p.fill || BLUE) + '55';
+    ctx.strokeStyle = p.stroke || p.fill || BLUE;
+    ctx.lineWidth = 2.4;
+    ctx.fill(); ctx.stroke();
+  });
+  // empreendimentos (marcadores vermelhos)
+  pts.forEach(e => {
+    const [x, y] = px(e.lng, e.lat);
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = RED; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+  });
+  // atribuição
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 250, H - 26, 250, 26);
+  ctx.fillStyle = '#566076'; ctx.font = '13px IBM Plex Sans, sans-serif';
+  ctx.fillText('© OpenStreetMap · © CARTO', W - 238, H - 8);
+  return canvas.toDataURL('image/jpeg', .9);
+}
+async function decodeStageImages(stage) {
+  await Promise.all([...stage.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
+}
+function deckKpisHtml(emps) {
+  const m = salesAverages(emps);
+  return `<div class="pdf-kpis" style="grid-template-columns:repeat(4,1fr)">
+    <div class="k"><span>EMPREENDIMENTOS</span><b>${emps.length}</b></div>
+    <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(emps.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
+    <div class="k"><span>ÁREA DE TERRENO M²</span><b>${fmtInt(emps.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></div>
+    <div class="k accent"><span>MÉDIA MENSAL VENDAS</span><b>${m.avg == null ? '—' : fmtDec(m.avg, 1)}</b></div>
+  </div>`;
+}
+function deckTableHtml(emps, max = 11) {
+  const rows = [...emps].sort((a, b) => (a.dtLancamento || '').localeCompare(b.dtLancamento || ''));
+  const shown = rows.slice(0, max);
+  return `<table class="pdf-table"><thead><tr><th>EMPREENDIMENTO</th><th>LANÇAMENTO</th><th>INCORPORADORA</th><th>BAIRRO</th><th class="r">M² TERRENO</th><th class="r">TOTAL UNIDS</th><th>STATUS</th></tr></thead>
+    <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${mesAno((e.dtLancamento || '').slice(0, 7))}</td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${fmtInt(e.totalUnidades)}</td><td>${textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO'}</td></tr>`).join('')}</tbody></table>
+    ${rows.length > max ? `<p class="mono" style="font-size:9.5px;color:${GRAY};margin-top:8px">+ ${rows.length - max} empreendimento(s) — lista completa no dashboard.</p>` : ''}`;
+}
+function deckFoot(page, periodo) {
+  return `<div class="pdf-foot"><span>EBM Inteligência · Oferta Futura GO · ${escapeHtml(periodo)}</span><span>pág. ${page}</span></div>`;
+}
+async function exportDeck() {
+  const overlay = $('#pdfOverlay'), status = $('#pdfStatus');
+  overlay.hidden = false;
+  try {
+    await ensureLogo();
+    const stage = $('#pdfStage');
+    stage.innerHTML = '';
+    const periodo = periodoLabel();
+    const isAM = e => textKey(e.tipo || '').replace(/\s+/g, '') === 'APART-MAP';
+    // ---- definição dos blocos ----
+    const mzs = [...new Set(filtered.map(e => mzLabel(e.macrozona)))].sort();
+    const am = filtered.filter(isAM);
+    const tipos = [...new Set(filtered.map(e => e.tipo || '—'))].sort();
+    const blocks = [];
+    if (filtered.length) blocks.push({
+      num: '01', title: 'Macrozonas', desc: `Oferta futura por macrozona · ${periodo}`,
+      scope: filtered,
+      cuts: mzs.map(mz => ({ title: mz, sub: 'Macrozona', emps: filtered.filter(e => mzLabel(e.macrozona) === mz) })),
+    });
+    if (am.length) blocks.push({
+      num: '02', title: 'Faixas de metragem — Apart-MAP', desc: `Segmento Apart-MAP por faixa de área privativa · ${periodo}`,
+      scope: am,
+      cuts: FAIXAS.map(f => ({ title: f.label, sub: 'Faixa de m² · Apart-MAP', emps: am.filter(e => empFaixas(e).has(f.id)) })).filter(c => c.emps.length),
+    });
+    if (filtered.length) blocks.push({
+      num: '03', title: 'Segmentos', desc: `Oferta futura por segmento de produto · ${periodo}`,
+      scope: filtered,
+      cuts: tipos.map(t => ({ title: t, sub: 'Segmento', emps: filtered.filter(e => (e.tipo || '—') === t) })).filter(c => c.emps.length),
+    });
+    // ---- capa ----
+    const cover = document.createElement('div');
+    cover.className = 'pdf-page pdf-cover';
+    cover.innerHTML = `<svg class="pdf-net" id="deckNet" preserveAspectRatio="xMidYMid slice"></svg>
+      <div style="position:relative">
+        <div style="display:inline-block;background:#fff;border-radius:12px;padding:14px 20px;margin-bottom:40px"><img src="${logoSrc()}" style="height:46px;width:100px;display:inline" /></div>
+        <div class="eyebrow">EBM INTELIGÊNCIA — APRESENTAÇÃO EXECUTIVA</div>
+        <h1>Oferta Futura GO</h1>
+        <p class="mono" style="position:relative;font-size:17px;color:#AEBFDE;margin-top:16px">Período: ${escapeHtml(periodo)}</p>
+      </div>
+      <div class="pdf-meta">
+        <div>Documento<b>Apresentação de Oferta Futura</b></div>
+        <div>Emitido em<b>${new Date().toLocaleDateString('pt-BR')}</b></div>
+        <div>Empreendimentos<b>${filtered.length}</b></div>
+        <div>Blocos<b>${blocks.map(b => b.title.split(' — ')[0]).join(' · ')}</b></div>
+      </div>`;
+    stage.appendChild(cover);
+    makeField(cover.querySelector('#deckNet'), { w: 1123, h: 794, n: 40, color: NAVY7, dist: 240, lineOp: .3, dotOp: .4 });
+    // ---- blocos: slide de mapa + 1 slide por corte ----
+    let pageNo = 1;
+    for (const b of blocks) {
+      status.textContent = `CAPTURANDO MAPA — ${b.title.toUpperCase()}…`;
+      const img = await captureMapFor(b.scope);
+      pageNo++;
+      const mapSlide = document.createElement('div');
+      mapSlide.className = 'pdf-page';
+      mapSlide.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(b.title)}</h2></div>
+        <p class="mono" style="font-size:10.5px;letter-spacing:.1em;color:${GRAY};margin:-12px 0 14px">${escapeHtml(b.desc.toUpperCase())} · ${b.scope.length} EMPREENDIMENTOS · TERRENOS DO FILTRO EM DESTAQUE</p>
+        ${img ? `<img class="pdf-img" src="${img}" style="height:560px;object-fit:cover" />` : `<div style="height:560px;border:1px dashed ${HAIR};border-radius:10px;display:grid;place-items:center;color:${GRAY}" class="mono">MAPA INDISPONÍVEL</div>`}
+        ${deckFoot(pageNo, periodo)}`;
+      stage.appendChild(mapSlide);
+      for (const c of b.cuts) {
+        pageNo++;
+        const s = document.createElement('div');
+        s.className = 'pdf-page';
+        s.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(c.title)}<small style="display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;letter-spacing:.14em;color:${GRAY};margin-top:6px">${escapeHtml(c.sub.toUpperCase())} · PERÍODO ${escapeHtml(periodo).toUpperCase()}</small></h2></div>
+          ${deckKpisHtml(c.emps)}
+          ${deckTableHtml(c.emps)}
+          ${deckFoot(pageNo, periodo)}`;
+        stage.appendChild(s);
+      }
+    }
+    // ---- renderização ----
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    await decodeStageImages(stage);
+    const pagesEls = [...stage.children];
+    for (let i = 0; i < pagesEls.length; i++) {
+      status.textContent = `RENDERIZANDO SLIDE ${i + 1}/${pagesEls.length}…`;
+      const canvas = await html2canvas(pagesEls[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      if (i > 0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg', .9), 'JPEG', 0, 0, 297, 210);
+    }
+    pdf.save(`Oferta_Futura_Apresentacao_${new Date().toISOString().slice(0, 10)}.pdf`);
+    stage.innerHTML = '';
+  } catch (err) {
+    console.error(err);
+    alert('Falha ao gerar a apresentação: ' + err.message);
+  } finally {
+    forceKmzFilter = false;
+    $('#pdfOverlay').hidden = true;
+  }
+}
+$('#btnExportDeck').onclick = exportDeck;
 
 /* ---------- exportação Excel ---------- */
 function exportXlsx() {
