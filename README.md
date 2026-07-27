@@ -233,6 +233,12 @@ Toda tabela ordena pelo cabeçalho: coluna de texto começa em A→Z, coluna num
 
 Unidades por tipologia, desempenho por incorporadora e concentração por bairro são hierárquicas: a linha de grupo abre os empreendimentos que a compõem. A ordenação vale nos dois níveis — grupos entre si e folhas dentro de cada grupo (`ordenarHierarquia`). Clicar numa folha centraliza o empreendimento no mapa.
 
+### 13i. Campo vazio é campo vazio — nada de valor inventado
+
+A ficha mostrava `FONTE DA TIPOLOGIA: PROJETO` sempre que o campo vinha em branco, por causa de um `|| 'PROJETO'` que estava lá desde o primeiro commit do dashboard. Era um dado fabricado com cara de dado real, e o pior: existe um empreendimento em que `PROJETO` é o valor verdadeiro, então não dava para distinguir um do outro olhando a tela.
+
+Regra: em campo de exibição, o *fallback* é sempre `—`. Se um valor faz sentido como padrão, ele tem que vir do pipeline e ficar gravado na base, nunca ser inventado na hora de desenhar a tela.
+
 ### 13f. Terrenos sem previsão ignoram só o filtro de período
 
 Eles não têm data de lançamento, então o filtro de período não se aplica — mas todos os outros sim: bairro, incorporadora, tipo e macrozona filtram normalmente (`semDataFiltrados()` chama o mesmo `empMatches(e, false)` da tabela de incorporadoras). Tipologia e faixa de m² **excluem** esses terrenos, e isso é intencional: um terreno sem tipologia cadastrada não pode casar com um filtro de tipologia, e fingir que casa inflaria a contagem.

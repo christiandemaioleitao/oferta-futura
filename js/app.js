@@ -842,7 +842,8 @@ function fillFicha(e) {
   $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : e.semData ? '<span class="badge badge--red" style="background:#8A93A6">SEM PREVISÃO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
     + (e.projetoProtocolado ? '<span class="badge badge--outline">PROJETO</span>' : '');
   $('#fInc').textContent = e.incorporadora || '—';
-  $('#fFonteTip').textContent = e.fonteTipologia || 'PROJETO';
+  // campo vazio é campo vazio: não inventar fonte (aqui havia um 'PROJETO' fixo)
+  $('#fFonteTip').textContent = e.fonteTipologia || '—';
   $('#fFonteLan').textContent = e.fonteDataLancamento || '—';
   $('#fFontePrev').textContent = e.fontePrevisao || '—';
   const tips = (e.tipologias || []).slice().sort((a, b) => (a.area || 0) - (b.area || 0));
