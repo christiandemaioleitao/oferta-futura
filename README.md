@@ -91,6 +91,12 @@ Antes de gravar, o pipeline compara o número de empreendimentos da janela com o
 
 Isso existe porque uma rodada com janela errada derruba dezenas de projetos sem erro nenhum — o dashboard simplesmente aparece com metade da base. Se a queda for real, rodar de novo com `OF_IGNORAR_QUEDA=1`.
 
+### Nunca use "Re-run jobs" numa execução antiga
+
+O botão **Re-run jobs** do GitHub Actions refaz a execução **no commit original**, não no `main` atual: volta o `pipeline_of.py` daquela época, com os parâmetros padrão daquela época e sem as guardas que vieram depois. Foi assim que a `projecao_of` voltou a ter 70 empreendimentos com janela 04/2026–09/2027 depois de já estar correta — a guarda de sanidade não existia no código re-executado, então nada barrou a escrita.
+
+Para rodar de novo, use **Run workflow** na aba Actions (ou o `workflow_dispatch` com os parâmetros), que sempre pega o `main` atual.
+
 ### Regenerar à mão
 
 ```bash

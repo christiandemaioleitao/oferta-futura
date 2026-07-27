@@ -63,7 +63,16 @@ jobs:
             echo "Sem mudanças nos dados."
           else
             git commit -m "chore: atualiza dados do dashboard via pipeline"
-            # rebase antes do push: um commit manual no main durante a execução derrubava o step
-            git pull --rebase origin main
-            git push
+            # o push disputa o main com commits manuais. Um rebase só não basta: entre o
+            # rebase e o push cabe outro commit, e o step morre com "fetch first".
+            for tentativa in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then
+                echo "dados publicados na tentativa $tentativa"
+                exit 0
+              fi
+              echo "push rejeitado (tentativa $tentativa), rebaseando de novo em 10s"
+              sleep 10
+            done
+            echo "não consegui publicar os dados após 5 tentativas" >&2
+            exit 1
           fi
