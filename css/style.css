@@ -108,6 +108,10 @@ button{font-family:inherit}
 .card__head h2{font-family:var(--font-display);font-weight:700;font-size:19px;color:var(--navy);letter-spacing:-.01em}
 .card__head small{display:block;font-size:12.5px;color:var(--gray-600);margin-top:3px}
 .duo{display:grid;grid-template-columns:1.15fr 1fr;gap:18px}
+/* sem min-width:0 a coluna fr não encolhe abaixo do min-content: ao voltar da tela cheia
+   o canvas ainda carrega a largura grande e trava o grid (o mapa fica espremido) */
+.duo>.card{min-width:0}
+.chart-box>canvas{max-width:100%}
 @media(max-width:1020px){.duo{grid-template-columns:1fr}}
 .duo .card{margin-bottom:18px}
 
@@ -141,6 +145,12 @@ button{font-family:inherit}
 .pivot th:first-child{text-align:left}
 .pivot th.th-sort{cursor:pointer;user-select:none}
 .pivot th.th-sort:hover{background:var(--navy-700)}
+/* alça de redimensionar coluna (estilo Power BI) */
+.col-grip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;user-select:none}
+.col-grip:hover,body.redimensionando .col-grip{background:rgba(255,255,255,.4)}
+body.redimensionando{cursor:col-resize;user-select:none}
+table.col-fixa{table-layout:fixed}
+table.col-fixa td,table.col-fixa th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pivot td{padding:8px 12px;border-bottom:1px solid var(--hair);text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--ink)}
 .pivot td:first-child{text-align:left;font-family:var(--font-body)}
 .pivot tr.group td{background:var(--paper);font-weight:600;color:var(--navy);cursor:pointer}

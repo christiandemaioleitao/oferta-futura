@@ -228,9 +228,17 @@ async function loadSemDataEmps() {
   }));
   return semDataEmps;
 }
-/* universo de empreendimentos: os da projeção + os sem previsão, quando a camada está ligada */
+/* universo de empreendimentos: os da projeção + os sem previsão, quando a camada está ligada.
+   Serve para achar a ficha pelo id — não é lista de exibição, não filtra. */
 function allEmps() {
   return semDataOn && semDataEmps ? DATA.empreendimentos.concat(semDataEmps) : DATA.empreendimentos;
+}
+/* Terrenos sem previsão ignoram só o filtro de período de lançamento — não têm data.
+   Bairro, incorporadora, tipo e macrozona valem normalmente; tipologia e faixa de m²
+   excluem esses terrenos, porque um terreno sem tipologia não pode casar com elas. */
+function semDataFiltrados() {
+  if (!semDataOn || !semDataEmps) return [];
+  return semDataEmps.filter(e => empMatches(e, false));
 }
 function empById(id) {
   return allEmps().find(x => x.id === id);
@@ -238,8 +246,7 @@ function empById(id) {
 function renderSemDataLayer() {
   if (!map || !semDataLayer) return;
   semDataLayer.clearLayers();
-  if (!semDataOn || !semDataEmps) return;
-  semDataEmps.forEach(e => {
+  semDataFiltrados().forEach(e => {
     if (e.lat == null || e.lng == null) return;
     const mk = L.circleMarker([e.lat, e.lng], { radius: 7, color: '#fff', weight: 2, fillColor: SEM_DATA_COLOR, fillOpacity: .95 });
     mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(e.empreendimento)}</b><span class="mono">${escapeHtml(e.bairro || '')} · SEM PREVISÃO DE LANÇAMENTO</span><button onclick="window.openFichaById('${e.id}')">VER FICHA COMPLETA</button></div>`);
@@ -288,7 +295,7 @@ function linkKmzFeatures() {
 function anyFilterActive() { return !!(state.from || state.to || Object.values(state).some(v => v instanceof Set && v.size)); }
 function visibleKmzFeatures() {
   const ids = new Set(filtered.map(e => e.id));
-  if (semDataOn && semDataEmps) semDataEmps.forEach(e => ids.add(e.id));
+  semDataFiltrados().forEach(e => ids.add(e.id));
   const filterOn = anyFilterActive();
   return (MAPA.features || []).filter(f => f.properties._empId ? ids.has(f.properties._empId) : !filterOn);
 }
@@ -681,6 +688,60 @@ function ordenarHierarquia(linhas, id, valor) {
   linhas.forEach(l => l.filhos && l.filhos.sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc)));
   return [...linhas].sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc));
 }
+/* ---------- largura de coluna arrastável (estilo Power BI) ----------
+   As larguras ficam por tabela e por índice de coluna, fora do DOM: as tabelas são
+   redesenhadas por innerHTML a cada ordenação e a largura precisa sobreviver a isso.
+   Ao arrastar pela primeira vez, congela a largura de todas as colunas e passa a
+   table-layout:fixed — sem isso o navegador redistribui tudo a cada arraste. */
+const larguras = {};
+function aplicarLarguras(id) {
+  const tabela = $('#' + id), larg = larguras[id];
+  if (!tabela || !tabela.tHead || !larg) return;
+  tabela.classList.add('col-fixa');
+  [...tabela.tHead.rows[0].cells].forEach((th, i) => { if (larg[i]) th.style.width = larg[i] + 'px'; });
+}
+function congelarLarguras(id) {
+  const tabela = $('#' + id);
+  const larg = larguras[id] = larguras[id] || {};
+  [...tabela.tHead.rows[0].cells].forEach((th, i) => {
+    if (!larg[i]) larg[i] = Math.round(th.getBoundingClientRect().width);
+  });
+  aplicarLarguras(id);
+}
+function ligarLarguras(id) {
+  const tabela = $('#' + id);
+  if (!tabela || !tabela.tHead) return;
+  aplicarLarguras(id);
+  [...tabela.tHead.rows[0].cells].forEach((th, i) => {
+    if (th.querySelector('.col-grip')) return;
+    const alca = document.createElement('span');
+    alca.className = 'col-grip';
+    alca.title = 'Arraste para mudar a largura · duplo clique restaura';
+    alca.onclick = ev => ev.stopPropagation();          // não ordenar ao soltar a alça
+    alca.ondblclick = ev => {
+      ev.stopPropagation();
+      delete larguras[id];
+      tabela.classList.remove('col-fixa');
+      [...tabela.tHead.rows[0].cells].forEach(c => { c.style.width = ''; });
+    };
+    alca.onmousedown = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      congelarLarguras(id);
+      const x0 = ev.clientX, w0 = larguras[id][i];
+      const mover = e => { larguras[id][i] = Math.max(48, w0 + e.clientX - x0); aplicarLarguras(id); };
+      const soltar = () => {
+        document.removeEventListener('mousemove', mover);
+        document.removeEventListener('mouseup', soltar);
+        document.body.classList.remove('redimensionando');
+      };
+      document.addEventListener('mousemove', mover);
+      document.addEventListener('mouseup', soltar);
+      document.body.classList.add('redimensionando');
+    };
+    th.appendChild(alca);
+  });
+}
+
 /* linhas group/leaf: o clique no grupo abre e fecha os empreendimentos */
 function ligarHierarquia(id) {
   $$(`#${id} tr.group`).forEach(tr => tr.onclick = () => {
@@ -723,13 +784,14 @@ function renderPivot() {
   $('#pivotTable').innerHTML = html;
   ligarHierarquia('pivotTable');
   ligarOrdenacao('pivotTable', renderPivot);
+  ligarLarguras('pivotTable');
 }
 
 /* ---------- radar (tabela) ---------- */
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.6 1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14 10a5 5 0 0 0-7.07 0l-2.83 2.83a5 5 0 0 0 7.07 7.07l1.59-1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 function sortedRows() {
   let rows = filtered;
-  if (semDataOn && semDataEmps) rows = rows.concat(semDataEmps);
+  rows = rows.concat(semDataFiltrados());
   if (searchTerm) { const q = textKey(searchTerm); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
   return [...rows].sort((a, b) => cmpOrd(a[sortKey], b[sortKey], sortAsc));
 }
@@ -1731,7 +1793,14 @@ let cardExpandido = null;
    do container e refaz o canvas na densidade da tela — se rodar antes, sai borrado */
 function recalcularVisuais() {
   requestAnimationFrame(() => {
-    [chartDisp, chartLanc].forEach(c => { try { c && c.resize(); } catch (e) { /* gráfico ainda não criado */ } });
+    [chartDisp, chartLanc].forEach(c => {
+      try {
+        if (!c) return;
+        // zera a largura antiga antes de medir: senão o canvas segura o container aberto
+        c.canvas.style.width = ''; c.canvas.style.height = '';
+        c.resize();
+      } catch (e) { /* gráfico ainda não criado */ }
+    });
     if (map) map.invalidateSize();
   });
 }
@@ -1887,6 +1956,7 @@ function renderIncorporadoras() {
   alvo.innerHTML = html;
   ligarHierarquia('incTable');
   ligarOrdenacao('incTable', renderIncorporadoras);
+  ligarLarguras('incTable');
   $$('#incTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
@@ -1966,6 +2036,7 @@ function renderConcentracao() {
   alvo.innerHTML = html;
   ligarHierarquia('concTable');
   ligarOrdenacao('concTable', renderConcentracao);
+  ligarLarguras('concTable');
   $$('#concTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
@@ -2009,6 +2080,7 @@ initAIChat();
 initSettingsPanel();
 initPlanoDiretor();
 initExpandir();
+ligarLarguras('radarTable');   // thead do radar é estático; as demais religam a cada render
 const MESES_PROJ = mesesDe(['dataProtocolo', 'dataAprovacao']);
 ligarCampoMes(campoMes('incFrom', MESES_PROJ), v => { incFrom = v; renderIncorporadoras(); });
 ligarCampoMes(campoMes('incTo', MESES_PROJ), v => { incTo = v; renderIncorporadoras(); });
