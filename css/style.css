@@ -128,6 +128,7 @@ button{font-family:inherit}
 .map-pop .mono{font-size:10.5px;color:var(--gray-600);letter-spacing:.06em;margin-top:3px;display:block}
 .map-pop button{margin-top:9px;border:0;background:var(--navy);color:#fff;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;border-radius:6px;padding:6px 10px;cursor:pointer}
 .map-pop button:hover{background:var(--red)}
+.bairro-tip{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--navy);background:rgba(255,255,255,.95);border:1px solid var(--hair);border-radius:7px;box-shadow:0 10px 24px rgba(12,31,85,.18);padding:4px 9px}
 
 /* gráficos */
 .chart-box{position:relative;height:250px}

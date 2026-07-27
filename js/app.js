@@ -236,7 +236,7 @@ function visibleKmzFeatures() {
 }
 
 /* ---------- mapa ---------- */
-let map, empLayer, terrenoLayer, pontoLayer, baseTiles, screenshoter;
+let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles, screenshoter;
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
   baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -245,13 +245,35 @@ function initMap() {
   if (window.SimpleMapScreenshoter || L.simpleMapScreenshoter) {
     try { screenshoter = L.simpleMapScreenshoter({ hidden: true, mimeType: 'image/jpeg' }).addTo(map); } catch (e) { console.warn('screenshoter indisponível', e); }
   }
+  satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
+  });
+  map.createPane('bairros');
+  map.getPane('bairros').style.zIndex = 380; // abaixo do overlayPane (400): bairros nunca cobrem marcadores
   empLayer = L.layerGroup().addTo(map);
   terrenoLayer = L.layerGroup().addTo(map);
   pontoLayer = L.layerGroup();
+  bairroLayer = L.layerGroup();
+  renderBairros();
   $('#lyrEmp').onchange = e => e.target.checked ? map.addLayer(empLayer) : map.removeLayer(empLayer);
   $('#lyrTerrenos').onchange = e => e.target.checked ? map.addLayer(terrenoLayer) : map.removeLayer(terrenoLayer);
   $('#lyrPontos').onchange = e => e.target.checked ? map.addLayer(pontoLayer) : map.removeLayer(pontoLayer);
+  $('#lyrBairros').onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
+  $('#lyrSat').onchange = e => {
+    if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); }
+    else { map.removeLayer(satTiles); baseTiles.addTo(map); }
+  };
   renderKmzLayers();
+}
+function renderBairros() {
+  const B = window.OF_BAIRROS || { features: [] };
+  if (!B.features.length) { $('#lyrBairros')?.closest('label')?.remove(); return; }
+  const renderer = L.canvas({ pane: 'bairros' }); // canvas: 1149 polígonos sem pesar o SVG
+  B.features.forEach(f => {
+    L.polygon(f.coords, { pane: 'bairros', renderer, color: f.color, weight: 1.1, opacity: .75, fillColor: f.color, fillOpacity: .28 })
+      .bindTooltip(f.name, { sticky: true, direction: 'top', className: 'bairro-tip' })
+      .addTo(bairroLayer);
+  });
 }
 function renderKmzLayers() {
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
