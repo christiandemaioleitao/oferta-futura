@@ -270,7 +270,7 @@ def main():
         v_acum = 0
         id_emp = str(row['id_empreendimento'])
         id_emp_str = str(int(float(id_emp))) if id_emp.replace('.', '').isdigit() else ''
-        link = f'https://simulador.ebm.com.br/Empreendimento/Alterar/{id_emp_str}' if id_emp_str else ''
+        link = f'https://inteligencia.ebm.com.br/Empreendimento/Alterar/{id_emp_str}' if id_emp_str else ''
         for m in range(1, 19):
             v_m = int(round(row['Unids_tipologia'] * row.get(f'%{m}M', 0)))
             v_acum += v_m
