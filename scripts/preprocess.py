@@ -45,7 +45,7 @@ idx = {h: i for i, h in enumerate(header)}
 
 emps = {}                                   # id_empreendimento -> dict
 tips = {}                                   # (emp, id_tipologia) -> dict
-mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))  # emp -> 'YYYY-MM' -> [disp, vend, distr]
+mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, defaultdict(float)]))  # emp -> 'YYYY-MM' -> [disp, vend, distr, {tipologia: disp}]
 hist = {}                                   # empreendimento histórico (mercado) -> dict
 n = 0
 for r in rows:
@@ -122,17 +122,23 @@ for r in rows:
     m = ym(g('data'))
     if m:
         cel = mensal[eid][m]
-        cel[0] += num(g('unidadesdisponiveis')) or 0
+        disp = num(g('unidadesdisponiveis')) or 0
+        cel[0] += disp
         # divide pelas tipologias depois? não: linha é por tipologia; disponíveis é por tipologia — soma correta
         cel[1] += num(g('unidadesvendidasmes')) or 0
         cel[2] += num(g('unidadesdistratadasmes')) or 0
+        # quebra por nº de quartos (0 = comercial) p/ visão detalhada dos gráficos
+        try: tq = min(max(int(float(g('tipologia_tratada') or 0)), 0), 4)
+        except Exception: tq = 0
+        cel[3][str(tq)] += disp
 
 print('linhas:', n, '| empreendimentos:', len(emps), '| tipologias:', len(tips))
 
 for (eid, tid), t in tips.items():
     emps[eid].setdefault('tipologias', []).append({k: t[k] for k in ('tipologia', 'tratada', 'unids', 'area')})
 for eid, mm in mensal.items():
-    emps[eid]['mensal'] = [{'m': m, 'disp': round(v[0], 1), 'vend': round(v[1], 2), 'distr': round(v[2], 2)} for m, v in sorted(mm.items())]
+    emps[eid]['mensal'] = [{'m': m, 'disp': round(v[0], 1), 'vend': round(v[1], 2), 'distr': round(v[2], 2),
+                            'tip': {k: round(x, 1) for k, x in sorted(v[3].items()) if x}} for m, v in sorted(mm.items())]
 
 historico = []
 for hrec in hist.values():

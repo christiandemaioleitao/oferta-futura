@@ -206,27 +206,38 @@ function distM(lat1, lng1, lat2, lng2) {
 }
 function linkKmzFeatures() {
   const emps = DATA.empreendimentos.filter(e => e.lat != null && e.lng != null);
-  (MAPA.features || []).forEach(f => {
+  const feats = MAPA.features || [];
+  const claimed = { Polygon: new Set(), Point: new Set() }; // emp já vinculado a uma geometria daquele tipo
+  // passo 1: vínculos fortes — marcador dentro do polígono ou nome exato
+  feats.forEach(f => {
     const p = f.properties = f.properties || {};
     p._empId = null;
+    let hit = null;
     if (f.geometry.type === 'Polygon') {
       const ring = f.geometry.coordinates[0];
-      let hit = emps.find(e => pointInPoly(e.lng, e.lat, ring));
-      if (!hit) hit = emps.find(e => textKey(e.empreendimento) === textKey(p.name));
-      if (!hit) {
-        const cx = ring.reduce((s, c) => s + c[0], 0) / ring.length, cy = ring.reduce((s, c) => s + c[1], 0) / ring.length;
-        let bestD = 300;
-        emps.forEach(e => { const d = distM(cy, cx, e.lat, e.lng); if (d < bestD) { bestD = d; hit = e; } });
-      }
-      if (hit) p._empId = hit.id;
+      hit = emps.find(e => pointInPoly(e.lng, e.lat, ring)) || emps.find(e => textKey(e.empreendimento) === textKey(p.name));
     } else if (f.geometry.type === 'Point') {
-      const [lng, lat] = f.geometry.coordinates;
-      const byName = emps.find(e => textKey(e.empreendimento) === textKey(p.name));
-      if (byName) { p._empId = byName.id; return; }
-      let best = null, bestD = 250;
-      emps.forEach(e => { const d = distM(lat, lng, e.lat, e.lng); if (d < bestD) { bestD = d; best = e; } });
-      if (best) p._empId = best.id;
+      hit = emps.find(e => textKey(e.empreendimento) === textKey(p.name));
     }
+    if (hit) { p._empId = hit.id; claimed[f.geometry.type].add(hit.id); }
+  });
+  // passo 2: proximidade só com empreendimentos ainda sem geometria própria — um terreno do KMZ
+  // sem cadastro nos dados não pode "roubar" a ficha do vizinho (ex.: QD 15 TERRAL × QD 21 WV MALDI)
+  feats.forEach(f => {
+    const p = f.properties;
+    if (p._empId || !claimed[f.geometry.type]) return;
+    let lat, lng;
+    if (f.geometry.type === 'Polygon') {
+      const ring = f.geometry.coordinates[0];
+      lng = ring.reduce((s, c) => s + c[0], 0) / ring.length; lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+    } else { [lng, lat] = f.geometry.coordinates; }
+    let best = null, bestD = f.geometry.type === 'Polygon' ? 300 : 250;
+    emps.forEach(e => {
+      if (claimed[f.geometry.type].has(e.id)) return;
+      const d = distM(lat, lng, e.lat, e.lng);
+      if (d < bestD) { bestD = d; best = e; }
+    });
+    if (best) { p._empId = best.id; claimed[f.geometry.type].add(best.id); }
   });
 }
 function anyFilterActive() { return !!(state.from || state.to || Object.values(state).some(v => v instanceof Set && v.size)); }
@@ -377,6 +388,33 @@ function launchSeries(emps) {
   emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) acc[m] = (acc[m] || 0) + (e.totalUnidades || 0); });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
+/* visão detalhada: quebra por nº de quartos (0 = comercial) */
+let detalhado = false;
+const TIP_KEYS = ['1', '2', '3', '4', '0'];
+const TIP_LABELS = { '0': 'COMERCIAL', '1': '1Q', '2': '2Q', '3': '3Q', '4': '4Q+' };
+const TIP_COLORS = { '1': '#9DB2D9', '2': '#5B79B4', '3': '#3A5AA0', '4': '#0C1F55', '0': '#C8102E' };
+const tipKeyOf = t => { const n = Number(t != null && t.tratada != null ? t.tratada : t); return Number.isFinite(n) && n > 0 ? String(Math.min(Math.round(n), 4)) : '0'; };
+function monthlySeriesTip(emps) { // meses ordenados + série disp por tipologia
+  const acc = {}; // m -> {tip: disp}
+  emps.forEach(e => (e.mensal || []).forEach(x => {
+    const cel = acc[x.m] = acc[x.m] || {};
+    if (x.tip && Object.keys(x.tip).length) {
+      Object.entries(x.tip).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
+    } else if (x.disp) { // dados antigos sem quebra: rateia pela participação das tipologias
+      const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
+      (e.tipologias || []).forEach(t => { const k = tipKeyOf(t); cel[k] = (cel[k] || 0) + x.disp * (tot ? (t.unids || 0) / tot : 0); });
+    }
+  }));
+  const months = Object.keys(acc).sort();
+  return { months, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, months.map(m => acc[m][k] || 0)])) };
+}
+function launchUnitsByTip(e) { // unidades lançadas do empreendimento por tipologia
+  const out = {};
+  const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
+  if (tot) (e.tipologias || []).forEach(t => { const k = tipKeyOf(t); out[k] = (out[k] || 0) + (t.unids || 0); });
+  else if (e.totalUnidades) out['0'] = e.totalUnidades;
+  return out;
+}
 /* modos do gráfico de lançamentos: mês, trimestre, ano, LTM (regras do dashboard leadsebm) */
 let lancMode = 'month';
 const periodKeyOF = (m, mode) => mode === 'year' ? m.slice(0, 4) : mode === 'quarter' ? m.slice(0, 4) + '-T' + Math.ceil(+m.slice(5, 7) / 3) : m;
@@ -394,36 +432,123 @@ function launchSeriesByMode(emps, mode) {
   emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) { const k = periodKeyOF(m, mode); acc[k] = (acc[k] || 0) + (e.totalUnidades || 0); } });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
-function renderCharts() {
-  const serie = monthlySeries(filtered);
-  const labels = serie.map(x => ymLabel(x[0]));
-  const ref = nowYM();
-  const refIdx = serie.findIndex(x => x[0] === ref);
-  if (chartDisp) chartDisp.destroy();
-  chartDisp = new Chart($('#chartDisp'), {
-    type: 'line',
-    data: { labels, datasets: [{
-      label: 'Unidades disponíveis', data: serie.map(x => Math.round(x[1])),
-      borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
-      pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
-      pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
-      pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
-      pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
-    }]},
-    plugins: [dataLabelsPlugin],
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : '') } } },
-      scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
+const ymIdx = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
+function launchSeriesTipByMode(emps, mode) {
+  const acc = {}; // 'YYYY-MM' -> {tip: unidades}
+  emps.forEach(e => {
+    const m = (e.dtLancamento || '').slice(0, 7); if (!m) return;
+    const cel = acc[m] = acc[m] || {};
+    Object.entries(launchUnitsByTip(e)).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
   });
-  const lserie = launchSeriesByMode(filtered, lancMode);
+  const months = Object.keys(acc).sort();
+  if (mode === 'ltm') {
+    const map = new Map(months.map(m => [ymIdx(m), acc[m]]));
+    return { keys: months, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, months.map(m => { const i = ymIdx(m); let s = 0; for (let j = i - 11; j <= i; j++) s += (map.get(j) || {})[k] || 0; return s; })])) };
+  }
+  const pacc = {};
+  months.forEach(m => { const pk = periodKeyOF(m, mode); const cel = pacc[pk] = pacc[pk] || {}; Object.entries(acc[m]).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; }); });
+  const keys = Object.keys(pacc).sort();
+  return { keys, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, keys.map(pk => pacc[pk][k] || 0)])) };
+}
+/* listas de empreendimentos p/ tooltip */
+const TT_MAX = 12;
+function empsLaunchedInPeriod(k, mode) {
+  return filtered.filter(e => {
+    const m = (e.dtLancamento || '').slice(0, 7); if (!m) return false;
+    if (mode === 'ltm') return ymIdx(m) >= ymIdx(k) - 11 && ymIdx(m) <= ymIdx(k);
+    return periodKeyOF(m, mode) === k;
+  }).sort((a, b) => (b.totalUnidades || 0) - (a.totalUnidades || 0));
+}
+function launchTooltipList(k, mode) {
+  const list = empsLaunchedInPeriod(k, mode);
+  if (!list.length) return [];
+  const lines = list.slice(0, TT_MAX).map(e => `${e.empreendimento} · ${fmtInt(e.totalUnidades)} un.`);
+  if (list.length > TT_MAX) lines.push(`… +${list.length - TT_MAX} empreendimentos`);
+  lines.push(`TOTAL · ${list.length} emp. · ${fmtInt(list.reduce((s, e) => s + (e.totalUnidades || 0), 0))} un.`);
+  return lines;
+}
+function dispTooltipList(m) {
+  const list = filtered.map(e => ({ e, d: ((e.mensal || []).find(x => x.m === m) || {}).disp || 0 }))
+    .filter(x => x.d > 0).sort((a, b) => b.d - a.d);
+  if (!list.length) return [];
+  const lines = list.slice(0, TT_MAX).map(x => `${x.e.empreendimento} · ${fmtInt(x.d)} un.`);
+  if (list.length > TT_MAX) lines.push(`… +${list.length - TT_MAX} empreendimentos · ${fmtInt(list.slice(TT_MAX).reduce((s, x) => s + x.d, 0))} un.`);
+  return lines;
+}
+function renderCharts() {
+  const ref = nowYM();
+  const legendCfg = { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 12 } };
+  if (chartDisp) chartDisp.destroy();
+  if (detalhado) {
+    const { months, byTip } = monthlySeriesTip(filtered);
+    const refIdx = months.indexOf(ref);
+    const dsets = TIP_KEYS.filter(k => byTip[k].some(v => v > 0)).map(k => ({
+      label: TIP_LABELS[k], data: byTip[k].map(v => Math.round(v)),
+      borderColor: TIP_COLORS[k], backgroundColor: TIP_COLORS[k], fill: false, tension: .3, borderWidth: 2,
+      pointRadius: months.map((m, i) => i === refIdx ? 4 : 2), pointBackgroundColor: TIP_COLORS[k],
+    }));
+    chartDisp = new Chart($('#chartDisp'), {
+      type: 'line',
+      data: { labels: months.map(ymLabel), datasets: dsets },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: legendCfg, tooltip: { callbacks: {
+          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${months[c.dataIndex] === ref ? ' · mês de referência' : ''}`,
+          afterBody: items => items.length ? ['', ...dispTooltipList(months[items[0].dataIndex])] : [],
+        } } },
+        scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
+    });
+  } else {
+    const serie = monthlySeries(filtered);
+    const refIdx = serie.findIndex(x => x[0] === ref);
+    chartDisp = new Chart($('#chartDisp'), {
+      type: 'line',
+      data: { labels: serie.map(x => ymLabel(x[0])), datasets: [{
+        label: 'Unidades disponíveis', data: serie.map(x => Math.round(x[1])),
+        borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
+        pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
+        pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
+        pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
+        pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
+      }]},
+      plugins: [dataLabelsPlugin],
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
+        label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''),
+        afterBody: items => items.length ? ['', ...dispTooltipList(serie[items[0].dataIndex][0])] : [],
+      } } },
+        scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
+    });
+  }
   const lref = lancMode === 'ltm' ? ref : periodKeyOF(ref, lancMode);
   if (chartLanc) chartLanc.destroy();
-  chartLanc = new Chart($('#chartLanc'), {
-    type: 'bar',
-    data: { labels: lserie.map(x => periodLabelOF(x[0], lancMode)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
-    plugins: [dataLabelsPlugin],
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + (lancMode === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas') } } },
-      scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
-  });
+  if (detalhado) {
+    const { keys, byTip } = launchSeriesTipByMode(filtered, lancMode);
+    const dsets = TIP_KEYS.filter(k => byTip[k].some(v => v > 0)).map(k => ({
+      label: TIP_LABELS[k], data: byTip[k].map(v => Math.round(v)),
+      backgroundColor: TIP_COLORS[k], borderRadius: 2, maxBarThickness: 26,
+    }));
+    chartLanc = new Chart($('#chartLanc'), {
+      type: 'bar',
+      data: { labels: keys.map(k => periodLabelOF(k, lancMode)), datasets: dsets },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: legendCfg, tooltip: { callbacks: {
+          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)}${lancMode === 'ltm' ? ' un. · últimos 12 meses' : ' un. lançadas'}`,
+          afterBody: items => items.length ? ['', ...launchTooltipList(keys[items[0].dataIndex], lancMode)] : [],
+        } } },
+        scales: { y: { stacked: true, grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
+    });
+  } else {
+    const lserie = launchSeriesByMode(filtered, lancMode);
+    chartLanc = new Chart($('#chartLanc'), {
+      type: 'bar',
+      data: { labels: lserie.map(x => periodLabelOF(x[0], lancMode)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
+      plugins: [dataLabelsPlugin],
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
+        label: c => ' ' + fmtInt(c.parsed.y) + (lancMode === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas'),
+        afterBody: items => items.length ? ['', ...launchTooltipList(lserie[items[0].dataIndex][0], lancMode)] : [],
+      } } },
+        scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
+    });
+  }
 }
 
 /* ---------- pivot ---------- */
@@ -1302,5 +1427,10 @@ initSettingsPanel();
 $$('#lancMode button').forEach(b => b.onclick = () => {
   lancMode = b.dataset.mode;
   $$('#lancMode button').forEach(x => x.classList.toggle('active', x === b));
+  renderCharts();
+});
+$$('#viewMode button').forEach(b => b.onclick = () => {
+  detalhado = b.dataset.view === 'tip';
+  $$('#viewMode button').forEach(x => x.classList.toggle('active', x === b));
   renderCharts();
 });

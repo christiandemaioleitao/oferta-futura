@@ -112,6 +112,10 @@
     <div class="card card--chart">
       <div class="card__head">
         <div><h2 data-editable>Oferta disponível por mês</h2><small data-editable>Unidades disponíveis projetadas · ponto vermelho = mês de referência</small></div>
+        <div class="seg mono" id="viewMode" title="Detalhado: quebra os dois gráficos por número de quartos (1Q–4Q e comercial)">
+          <button type="button" data-view="total" class="active">Total</button>
+          <button type="button" data-view="tip">Detalhado</button>
+        </div>
       </div>
       <div class="chart-box"><canvas id="chartDisp"></canvas></div>
       <div class="card__head" style="margin-top:18px">
