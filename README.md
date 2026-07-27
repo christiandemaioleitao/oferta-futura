@@ -209,9 +209,27 @@ Faixa de m² tem o balde **`f0` — "sem área informada"**. Sem ele, as tipolog
 
 Com Jan–Jun/26 selecionado, os gráficos mostram só esses 6 meses — e não os 18 meses de projeção de cada produto lançado na janela. O filtro define a janela de análise inteira, não só quais empreendimentos entram.
 
-### 13. "Lançado" é medido contra o início do filtro
+### 13. Desempenho por incorporadora tem período próprio
 
-Na tabela por incorporadora, um empreendimento conta como lançado quando `dtLancamento <= início do período filtrado`. Sem filtro de período, a régua é o mês de referência (mês atual). Isso mantém a leitura estável: ao analisar 2027, o que foi lançado em 2026 já é passado.
+É a única tabela que **não** obedece ao filtro global de período de lançamento — os demais filtros (bairro, incorporadora, tipo, tipologia, macrozona, faixa) ela obedece normalmente.
+
+O recorte dela é sobre **protocolo e aprovação**: com Jan/25 → Jan/26 selecionado, entram os projetos protocolados **ou** aprovados nesse intervalo. As colunas seguem o mesmo critério — `aprovados` = aprovação dentro da janela; `em protocolo` = protocolado na janela e ainda sem aprovação nela. Sem janela, ambas caem no status atual do projeto, e aí as flags `ProjetoProtocolado`/`ProjetoAprovado` valem quando a data está em branco.
+
+"Lançado" é medido contra o **início do período da tabela**: `dtLancamento <= incFrom`. Sem período, a régua é o mês de referência (mês atual). Isso mantém a leitura estável: ao analisar 2027, o que foi lançado em 2026 já é passado.
+
+### 13b. `<input type="month">` não existe em todo navegador
+
+Firefox e Safari não implementam o campo: ele cai para texto, o valor nunca chega em `YYYY-MM` e o filtro de período simplesmente não aplica — sem erro nenhum no console. Onde o navegador não suporta, o campo é trocado por um `<select>` com os meses que existem na base (`campoMes`), e o que o usuário digita passa por `normalizaYM`, que aceita `2026-01`, `01/2026`, `1/2026` e `2026/01`. Vale para os dois filtros de período: lançamento e protocolo/aprovação.
+
+### 13c. Ordenação e hierarquia das tabelas
+
+Toda tabela ordena pelo cabeçalho: coluna de texto começa em A→Z, coluna numérica começa do maior (padrão de BI), e o segundo clique inverte. Valor vazio fica sempre por último, nos dois sentidos — `cmpOrd`.
+
+Unidades por tipologia, desempenho por incorporadora e concentração por bairro são hierárquicas: a linha de grupo abre os empreendimentos que a compõem. A ordenação vale nos dois níveis — grupos entre si e folhas dentro de cada grupo (`ordenarHierarquia`). Clicar numa folha centraliza o empreendimento no mapa.
+
+### 13d. O desfoque do "expandir" fica no overlay, não num ancestral
+
+`filter: blur()` num ancestral desfoca também o card expandido — e, pior, transforma o ancestral em bloco de contenção do `position: fixed`, jogando o card para fora do viewport. Por isso o desfoque é `backdrop-filter` no `.expand-back`, que fica atrás do card. O `resize()` dos gráficos roda dentro de um `requestAnimationFrame`, depois que o layout novo já valeu — se rodar antes, o canvas é refeito no tamanho antigo e sai borrado.
 
 ### 14. Médias de venda do mercado
 
@@ -235,9 +253,10 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Gráficos** | Oferta disponível por mês e lançamentos por mês (Mês/Tri/Ano/LTM), recortados pelo período filtrado. O botão **Detalhado** abre duas quebras: **Tipologias** (1Q–4Q e comercial) ou **Faixa de m²**; a tooltip lista os empreendimentos do período com suas unidades. |
 | **Plano Diretor** | Painel com as 22 camadas do Plano Diretor de Goiânia 2022, agrupadas em Estrutura, Densidade, Ambiental e Programas. Desligadas por padrão; dá para ligar uma, um grupo inteiro ou todas. Cada camada só é baixada quando ligada. |
 | **Expandir** | Todo painel tem botão de expandir para tela cheia (estilo Power BI). `ESC` restaura. |
-| **Por incorporadora** | Projetos, unidades, quantos em protocolo, aprovados e lançados, além do tempo de aprovação (mediana e média) com o tamanho da amostra. |
-| **Concentração** | Onde a oferta se acumula, por bairro ou macrozona: empreendimentos, unidades, participação, incorporadoras distintas e m² médio. |
-| **Radar** | Tabela com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
+| **Por incorporadora** | Projetos, unidades, quantos em protocolo, aprovados e lançados, além do tempo de aprovação (mediana e média) com o tamanho da amostra. Tem **período próprio** de protocolo/aprovação e ignora o filtro global de período de lançamento. Abre por empreendimento. |
+| **Concentração** | Onde a oferta se acumula, por bairro ou macrozona: empreendimentos, unidades, participação, incorporadoras distintas e m² médio. Abre por empreendimento. |
+| **Tabelas** | Todas ordenam pelo cabeçalho (texto A→Z, número do maior; segundo clique inverte). As hierárquicas abrem os empreendimentos do grupo, e o clique numa linha de empreendimento centraliza o mapa. |
+| **Radar** | Primeira tabela da página, com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
 | **Ficha** | Origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
 | **Exportar** | PDF (relatório), PDF Apresentação (deck por macrozona, faixa, segmento e **terrenos sem previsão de lançamento**), Excel (5 abas) e KMZ — todos respeitando os filtros. |
 | **Importar** | Excel no esquema da master e KMZ/KML do Google Earth, reconstruindo o dashboard no navegador. |

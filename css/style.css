@@ -136,9 +136,11 @@ button{font-family:inherit}
 
 /* ---------- pivot ---------- */
 .table-scroll{overflow-x:auto}
-.pivot{width:100%;border-collapse:collapse;font-size:12.5px}
-.pivot th{background:var(--navy);color:#fff;font-family:var(--font-mono);font-weight:500;font-size:10.5px;letter-spacing:.1em;padding:10px 12px;text-align:right;white-space:nowrap}
+.pivot{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.pivot th{position:sticky;top:0;z-index:2;background:var(--navy);color:#fff;font-family:var(--font-mono);font-weight:500;font-size:10.5px;letter-spacing:.1em;padding:10px 12px;text-align:right;white-space:nowrap}
 .pivot th:first-child{text-align:left}
+.pivot th.th-sort{cursor:pointer;user-select:none}
+.pivot th.th-sort:hover{background:var(--navy-700)}
 .pivot td{padding:8px 12px;border-bottom:1px solid var(--hair);text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--ink)}
 .pivot td:first-child{text-align:left;font-family:var(--font-body)}
 .pivot tr.group td{background:var(--paper);font-weight:600;color:var(--navy);cursor:pointer}
@@ -148,6 +150,8 @@ button{font-family:inherit}
 .pivot tr.total td{background:var(--navy);color:#fff;font-weight:600;border-bottom:0}
 .pivot tr.leaf{display:none}
 .pivot tr.leaf.show{display:table-row}
+/* célula de texto numa coluna numérica (ex.: incorporadora na linha do empreendimento) */
+.pivot td.cell-txt{text-align:left;font-family:var(--font-body);font-size:11.5px;color:var(--gray-600);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- radar (tabela redesign) ---------- */
 .radar{padding-bottom:8px}
@@ -372,19 +376,25 @@ tr:hover .rt-name{color:var(--red)}
 .expand-btn{background:var(--paper);border:1px solid var(--hair);border-radius:7px;width:28px;height:28px;display:grid;place-items:center;cursor:pointer;color:var(--navy-500);flex:none}
 .expand-btn:hover{border-color:var(--navy-500);color:var(--navy)}
 .expand-btn svg{width:14px;height:14px}
-body.has-expanded>*:not(.card-expanded):not(#pdfOverlay):not(.ficha){filter:blur(1.5px)}
+/* o desfoque do fundo fica no overlay (backdrop-filter), nunca num ancestral do card:
+   filter num ancestral desfoca o próprio card e ainda vira bloco de contenção do
+   position:fixed, jogando o card expandido para fora do viewport */
 .card-expanded{position:fixed!important;inset:14px!important;z-index:1300;margin:0!important;overflow:auto;box-shadow:0 30px 90px rgba(12,31,85,.35)}
 .card-expanded .chart-box{height:calc(100vh - 320px);min-height:320px}
 .card-expanded .chart-box--sm{height:calc(100vh - 320px);min-height:280px}
 .card-expanded #map{height:calc(100vh - 210px)}
 .card-expanded .radar__scroll,.card-expanded .table-scroll{max-height:calc(100vh - 200px)}
-.expand-back{position:fixed;inset:0;background:rgba(12,31,85,.18);z-index:1290}
+.expand-back{position:fixed;inset:0;background:rgba(12,31,85,.18);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:1290}
+body.has-expanded{overflow:hidden}
 
 /* ---------- tabelas de análise ---------- */
 .seg--sub button{font-size:10.5px}
 .inc-table td.num,.conc-table td.num{text-align:right;font-family:var(--font-mono);font-size:12px}
 .inc-table tbody tr:hover,.conc-table tbody tr:hover{background:#FBEDEE}
 .inc-table td:first-child,.conc-table td:first-child{font-family:var(--font-mono);font-weight:600;color:var(--navy);font-size:11.5px}
+.inc-range{display:flex;align-items:center;gap:7px;border:1px solid var(--hair);border-radius:9px;background:#fff;padding:6px 10px}
+.inc-range>span.mono{font-size:9.5px;letter-spacing:.1em;color:var(--gray-400)}
+.inc-range input{border:1px solid var(--hair);border-radius:7px;padding:5px 8px;font-family:var(--font-mono);font-size:11px;color:var(--navy);background:var(--paper)}
 .conc-bar{position:relative;min-width:120px}
 .conc-bar i{display:block;height:9px;border-radius:3px;background:var(--navy-500)}
 .tot-row td{font-weight:700;color:var(--navy);border-top:2px solid var(--navy)!important;background:var(--paper)}

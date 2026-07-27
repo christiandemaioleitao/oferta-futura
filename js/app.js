@@ -36,10 +36,12 @@ function empFaixas(e) {
   (e.tipologias || []).forEach(t => { if (t.area != null) { const f = FAIXAS.find(f => t.area >= f.min && t.area < f.max); if (f) out.add(f.id); } });
   return out;
 }
-function empMatches(e) {
+/* comPeriodo=false: aplica todos os filtros menos o de período de lançamento —
+   usado pela tabela de incorporadoras, que tem período próprio (protocolo/aprovação) */
+function empMatches(e, comPeriodo = true) {
   const m = (e.dtLancamento || '').slice(0, 7);
-  if (state.from && m && m < state.from) return false;
-  if (state.to && m && m > state.to) return false;
+  if (comPeriodo && state.from && m && m < state.from) return false;
+  if (comPeriodo && state.to && m && m > state.to) return false;
   if (state.macrozona.size && !state.macrozona.has(mzLabel(e.macrozona))) return false;
   if (state.bairro.size && !state.bairro.has(e.bairro)) return false;
   if (state.incorporadora.size && !state.incorporadora.has(e.incorporadora)) return false;
@@ -131,7 +133,7 @@ function buildFilters() {
 
 function filtersSummaryText() {
   const parts = [];
-  if (state.from || state.to) parts.push(`LANÇAMENTO ${state.from || '…'} → ${state.to || '…'}`);
+  if (state.from || state.to) parts.push(`LANÇAMENTO ${state.from ? ymLabel(state.from) : '…'} → ${state.to ? ymLabel(state.to) : '…'}`);
   const names = { macrozona: 'MACROZONA', bairro: 'BAIRRO', incorporadora: 'INCORPORADORA', tipo: 'TIPO', tipologia: 'TIPOLOGIA', faixa: 'FAIXA M²' };
   Object.entries(names).forEach(([k, label]) => {
     if (state[k].size) {
@@ -165,7 +167,7 @@ function salesAverages(emps) {
 
 /* ---------- aplicação de filtros ---------- */
 function applyAll() {
-  filtered = DATA.empreendimentos.filter(empMatches);
+  filtered = DATA.empreendimentos.filter(e => empMatches(e));
   $('#filtersSummary').textContent = filtersSummaryText();
   renderKPIs(); renderMap(); renderCharts(); renderPivot(); renderRadar();
   renderIncorporadoras(); renderConcentracao();
@@ -641,31 +643,86 @@ function renderCharts() {
   }
 }
 
-/* ---------- pivot ---------- */
+/* ============================================================
+   ORDENAÇÃO DAS TABELAS
+   Coluna de texto começa em A→Z; coluna numérica começa do maior
+   (padrão de BI). O segundo clique inverte. Vazio fica sempre por último.
+   ============================================================ */
+const ordens = {
+  pivotTable: { k: 'g', asc: true },
+  incTable: { k: 'projetos', asc: false },
+  concTable: { k: 'unidades', asc: false },
+};
+function cabecalhoOrdenavel(id, cols) {
+  const o = ordens[id];
+  return '<thead><tr>' + cols.map(c => {
+    if (c.fixa) return `<th>${c.label}</th>`;
+    const ind = o.k === c.k ? ` <i class="sort-ind">${o.asc ? '↑' : '↓'}</i>` : '';
+    return `<th class="th-sort" data-k="${escapeHtml(c.k)}" data-t="${c.num ? 'num' : 'txt'}">${c.label}${ind}</th>`;
+  }).join('') + '</tr></thead>';
+}
+function ligarOrdenacao(id, redesenhar) {
+  $$(`#${id} th.th-sort`).forEach(th => th.onclick = () => {
+    const o = ordens[id], k = th.dataset.k;
+    if (o.k === k) o.asc = !o.asc; else { o.k = k; o.asc = th.dataset.t !== 'num'; }
+    redesenhar();
+  });
+}
+function cmpOrd(a, b, asc) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  const d = (typeof a === 'number' && typeof b === 'number') ? a - b : String(a).localeCompare(String(b), 'pt-BR');
+  return asc ? d : -d;
+}
+/* ordena grupos e, dentro de cada grupo, as folhas pela mesma coluna */
+function ordenarHierarquia(linhas, id, valor) {
+  const o = ordens[id];
+  linhas.forEach(l => l.filhos && l.filhos.sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc)));
+  return [...linhas].sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc));
+}
+/* linhas group/leaf: o clique no grupo abre e fecha os empreendimentos */
+function ligarHierarquia(id) {
+  $$(`#${id} tr.group`).forEach(tr => tr.onclick = () => {
+    tr.classList.toggle('open');
+    $$(`#${id} tr.leaf[data-g="${tr.dataset.g}"]`).forEach(l => l.classList.toggle('show', tr.classList.contains('open')));
+  });
+}
+
+/* ---------- pivot: unidades por tipologia ---------- */
 function renderPivot() {
   const cols = [...new Set(filtered.flatMap(e => (e.tipologias || []).map(t => String(t.tratada != null ? t.tratada : t.tipologia))))].sort();
   const groups = {};
   filtered.forEach(e => { (groups[e.tipo || '—'] = groups[e.tipo || '—'] || []).push(e); });
   const cell = (e, c) => (e.tipologias || []).filter(t => String(t.tratada != null ? t.tratada : t.tipologia) === c).reduce((s, t) => s + (t.unids || 0), 0);
-  let html = `<thead><tr><th>TIPO / EMPREENDIMENTO</th>${cols.map(c => `<th>${escapeHtml(/^\d+$/.test(c) ? c + 'Q' : c)}</th>`).join('')}<th>TOTAL</th></tr></thead><tbody>`;
-  const gtot = Object.fromEntries(cols.map(c => [c, 0])); let gsum = 0;
-  Object.keys(groups).sort().forEach((g, gi) => {
-    const emps = groups[g];
-    const tot = Object.fromEntries(cols.map(c => [c, emps.reduce((s, e) => s + cell(e, c), 0)]));
-    const sum = Object.values(tot).reduce((s, x) => s + x, 0); gsum += sum;
-    cols.forEach(c => gtot[c] += tot[c]);
-    html += `<tr class="group" data-g="${gi}"><td>${escapeHtml(g)}</td>${cols.map(c => `<td>${tot[c] ? fmtInt(tot[c]) : '·'}</td>`).join('')}<td><b>${fmtInt(sum)}</b></td></tr>`;
-    emps.sort((a, b) => (a.empreendimento || '').localeCompare(b.empreendimento || '')).forEach(e => {
-      const rsum = cols.reduce((s, c) => s + cell(e, c), 0);
-      html += `<tr class="leaf" data-g="${gi}"><td>${escapeHtml(e.empreendimento)}</td>${cols.map(c => { const v = cell(e, c); return `<td>${v ? fmtInt(v) : '·'}</td>`; }).join('')}<td>${fmtInt(rsum)}</td></tr>`;
+  const linhas = Object.entries(groups).map(([g, emps]) => {
+    const filhos = emps.map(e => {
+      const vals = Object.fromEntries(cols.map(c => [c, cell(e, c)]));
+      return { nome: e.empreendimento || '—', vals, total: cols.reduce((s, c) => s + vals[c], 0) };
+    });
+    const vals = Object.fromEntries(cols.map(c => [c, filhos.reduce((s, f) => s + f.vals[c], 0)]));
+    return { nome: g, vals, total: cols.reduce((s, c) => s + vals[c], 0), filhos };
+  });
+  const valor = (r, k) => k === 'g' ? r.nome : k === 'total' ? r.total : r.vals[k];
+  const ordenadas = ordenarHierarquia(linhas, 'pivotTable', valor);
+  const gtot = Object.fromEntries(cols.map(c => [c, linhas.reduce((s, l) => s + l.vals[c], 0)]));
+  const gsum = linhas.reduce((s, l) => s + l.total, 0);
+  const celula = v => v ? fmtInt(v) : '·';
+  let html = cabecalhoOrdenavel('pivotTable', [
+    { k: 'g', label: 'TIPO / EMPREENDIMENTO' },
+    ...cols.map(c => ({ k: c, label: escapeHtml(/^\d+$/.test(c) ? c + 'Q' : c), num: true })),
+    { k: 'total', label: 'TOTAL', num: true },
+  ]) + '<tbody>';
+  ordenadas.forEach((l, gi) => {
+    html += `<tr class="group" data-g="${gi}"><td>${escapeHtml(l.nome)}</td>${cols.map(c => `<td>${celula(l.vals[c])}</td>`).join('')}<td><b>${fmtInt(l.total)}</b></td></tr>`;
+    l.filhos.forEach(f => {
+      html += `<tr class="leaf" data-g="${gi}"><td>${escapeHtml(f.nome)}</td>${cols.map(c => `<td>${celula(f.vals[c])}</td>`).join('')}<td>${fmtInt(f.total)}</td></tr>`;
     });
   });
   html += `<tr class="total"><td>TOTAL GERAL</td>${cols.map(c => `<td>${fmtInt(gtot[c])}</td>`).join('')}<td>${fmtInt(gsum)}</td></tr></tbody>`;
   $('#pivotTable').innerHTML = html;
-  $$('#pivotTable tr.group').forEach(tr => tr.onclick = () => {
-    tr.classList.toggle('open');
-    $$(`#pivotTable tr.leaf[data-g="${tr.dataset.g}"]`).forEach(l => l.classList.toggle('show', tr.classList.contains('open')));
-  });
+  ligarHierarquia('pivotTable');
+  ligarOrdenacao('pivotTable', renderPivot);
 }
 
 /* ---------- radar (tabela) ---------- */
@@ -674,13 +731,7 @@ function sortedRows() {
   let rows = filtered;
   if (semDataOn && semDataEmps) rows = rows.concat(semDataEmps);
   if (searchTerm) { const q = textKey(searchTerm); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
-  const dir = sortAsc ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    let va = a[sortKey], vb = b[sortKey];
-    if (va == null) return 1; if (vb == null) return -1;
-    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
-    return String(va).localeCompare(String(vb), 'pt-BR') * dir;
-  });
+  return [...rows].sort((a, b) => cmpOrd(a[sortKey], b[sortKey], sortAsc));
 }
 function renderRadar() {
   const rows = sortedRows();
@@ -705,7 +756,8 @@ function renderRadar() {
 $('#radarSearch')?.addEventListener('input', e => { searchTerm = e.target.value; renderRadar(); });
 $$('#radarTable th[data-sort]').forEach(th => th.onclick = () => {
   const k = th.dataset.sort;
-  if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
+  /* texto e data começam em A→Z / mais antigo; número começa do maior */
+  if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = !th.classList.contains('th-num'); }
   renderRadar();
 });
 
@@ -1354,8 +1406,46 @@ $('#btnClearFilters').onclick = () => {
   Object.values(MS).forEach(m => { m.render(); m.sync(); });
   applyAll();
 };
-$('#fltFrom').onchange = e => { state.from = e.target.value; applyAll(); };
-$('#fltTo').onchange = e => { state.to = e.target.value; applyAll(); };
+/* ---------- campos de mês ----------
+   Firefox e Safari não implementam <input type="month">: o campo cai para texto,
+   o valor nunca chega em YYYY-MM e o filtro de período simplesmente não aplica.
+   Nesses navegadores o campo vira um select com os meses que existem na base. */
+const suportaInputMes = (() => { const i = document.createElement('input'); i.setAttribute('type', 'month'); return i.type === 'month'; })();
+/* aceita 2026-01, 01/2026, 1/2026, 2026/01 — cobre o que o usuário digita no fallback texto */
+function normalizaYM(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  let m = /^(\d{4})[-/.](\d{1,2})$/.exec(s);
+  if (!m) { const b = /^(\d{1,2})[-/.](\d{4})$/.exec(s); if (b) m = [null, b[2], b[1]]; }
+  if (!m) return '';
+  const mes = +m[2];
+  return mes >= 1 && mes <= 12 ? `${m[1]}-${String(mes).padStart(2, '0')}` : '';
+}
+function mesesDe(datas) {
+  const set = new Set();
+  DATA.empreendimentos.forEach(e => datas.forEach(k => { const m = (e[k] || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) set.add(m); }));
+  return [...set].sort();
+}
+/* devolve o elemento efetivo do campo (input nativo ou select do fallback) */
+function campoMes(id, meses) {
+  const el = $('#' + id);
+  if (!el || suportaInputMes) return el;
+  const sel = document.createElement('select');
+  sel.id = id; sel.className = el.className;
+  sel.innerHTML = '<option value="">—</option>' + meses.map(m => `<option value="${m}">${ymLabel(m)}</option>`).join('');
+  el.replaceWith(sel);
+  return sel;
+}
+/* change cobre o seletor nativo e o select; input cobre quem digita sem sair do campo */
+function ligarCampoMes(el, aplicar) {
+  if (!el) return;
+  const handler = () => { const v = normalizaYM(el.value); if (el.value && !v) return; aplicar(v); };
+  el.addEventListener('change', handler);
+  el.addEventListener('input', handler);
+}
+const MESES_LANC = mesesDe(['dtLancamento']);
+ligarCampoMes(campoMes('fltFrom', MESES_LANC), v => { state.from = v; applyAll(); });
+ligarCampoMes(campoMes('fltTo', MESES_LANC), v => { state.to = v; applyAll(); });
 
 /* ============================================================
    Edição de textos com lápis (portado de leadsebm2.0)
@@ -1637,9 +1727,13 @@ function initPlanoDiretor() {
 const EXPAND_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const COLAPSE_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M3 9h6V3M21 15h-6v6M10 10 3 3M14 14l7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 let cardExpandido = null;
+/* redimensiona depois que o layout novo já valeu: o resize do Chart.js lê o tamanho
+   do container e refaz o canvas na densidade da tela — se rodar antes, sai borrado */
 function recalcularVisuais() {
-  [chartDisp, chartLanc].forEach(c => { try { c && c.resize(); } catch (e) { /* gráfico ainda não criado */ } });
-  if (map) setTimeout(() => map.invalidateSize(), 60);
+  requestAnimationFrame(() => {
+    [chartDisp, chartLanc].forEach(c => { try { c && c.resize(); } catch (e) { /* gráfico ainda não criado */ } });
+    if (map) map.invalidateSize();
+  });
 }
 function alternarExpansao(card, btn) {
   const abrindo = cardExpandido !== card;
@@ -1681,7 +1775,6 @@ function initExpandir() {
 }
 
 /* ---------- desempenho por incorporadora ---------- */
-let incSort = 'projetos';
 const diasEntre = (a, b) => (!a || !b) ? null : Math.round((new Date(b.slice(0, 10)) - new Date(a.slice(0, 10))) / 86400000);
 const mediana = arr => {
   if (!arr.length) return null;
@@ -1689,56 +1782,76 @@ const mediana = arr => {
   return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
 };
 const media = arr => arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
-/* "lançado" usa o início do filtro: lançamento anterior a ele já aconteceu.
-   Sem filtro de período, a régua é o mês de referência (mês atual). */
-const rEguaLancamento = () => state.from || nowYM();
+/* Esta é a única tabela que ignora o filtro global de período de lançamento:
+   ela tem período próprio, medido sobre as datas de protocolo e de aprovação. */
+let incFrom = '', incTo = '';
+const incJanela = () => !!(incFrom || incTo);
+const dentroInc = d => { const m = (d || '').slice(0, 7); return !!m && (!incFrom || m >= incFrom) && (!incTo || m <= incTo); };
+/* "lançado" usa o início do período da tabela: lançamento anterior a ele já aconteceu.
+   Sem período, a régua é o mês de referência (mês atual). */
+const rEguaLancamento = () => incFrom || nowYM();
 const jaLancado = e => { const m = (e.dtLancamento || '').slice(0, 7); return !!m && m <= rEguaLancamento(); };
+/* com período: conta o que aconteceu dentro da janela.
+   sem período: cai no status atual (as flags do banco valem quando falta a data) */
+function estagioProjeto(e) {
+  const aprovado = incJanela() ? dentroInc(e.dataAprovacao) : (!!e.dataAprovacao || !!e.projetoAprovado);
+  const protocolado = incJanela() ? dentroInc(e.dataProtocolo) : (!!e.dataProtocolo || !!e.projetoProtocolado);
+  return { aprovado, emProtocolo: protocolado && !aprovado };
+}
+function baseIncorporadoras() {
+  return DATA.empreendimentos.filter(e => empMatches(e, false))
+    .filter(e => !incJanela() || dentroInc(e.dataProtocolo) || dentroInc(e.dataAprovacao));
+}
 function statsIncorporadoras(emps) {
   const acc = {};
   emps.forEach(e => {
     const nome = e.incorporadora || '—';
-    const a = acc[nome] = acc[nome] || { nome, projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] };
+    const a = acc[nome] = acc[nome] || { nome, projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [], filhos: [] };
+    const { aprovado, emProtocolo } = estagioProjeto(e);
+    const lancado = jaLancado(e);
+    const d = diasEntre(e.dataProtocolo, e.dataAprovacao);
+    const prazo = (d != null && d >= 0) ? d : null;
     a.projetos += 1;
     a.unidades += e.totalUnidades || 0;
-    const temProto = !!e.dataProtocolo, aprovado = !!e.dataAprovacao || !!e.projetoAprovado;
     if (aprovado) a.aprovados += 1;
-    else if (temProto || e.projetoProtocolado) a.protocolo += 1;  // protocolado e ainda em análise
-    if (jaLancado(e)) a.lancados += 1;
-    const d = diasEntre(e.dataProtocolo, e.dataAprovacao);
-    if (d != null && d >= 0) a.prazos.push(d);
+    if (emProtocolo) a.protocolo += 1;
+    if (lancado) a.lancados += 1;
+    if (prazo != null) a.prazos.push(prazo);
+    a.filhos.push({
+      nome: e.empreendimento || '—', id: e.id, projetos: 1, unidades: e.totalUnidades || 0,
+      protocolo: emProtocolo ? 1 : 0, aprovados: aprovado ? 1 : 0, lancados: lancado ? 1 : 0,
+      medianaAprov: prazo, mediaAprov: prazo, amostra: prazo != null ? 1 : null,
+    });
   });
   return Object.values(acc).map(a => ({
-    ...a,
-    medianaAprov: mediana(a.prazos),
-    mediaAprov: media(a.prazos),
-    amostra: a.prazos.length,
+    ...a, medianaAprov: mediana(a.prazos), mediaAprov: media(a.prazos), amostra: a.prazos.length || null,
   }));
 }
 function renderIncorporadoras() {
   const alvo = $('#incTable'); if (!alvo) return;
-  const linhas = statsIncorporadoras(filtered);
-  const ordem = (a, b) => {
-    const va = a[incSort], vb = b[incSort];
-    if (va == null && vb == null) return a.nome.localeCompare(b.nome, 'pt-BR');
-    if (va == null) return 1;
-    if (vb == null) return -1;
-    return incSort === 'medianaAprov' ? va - vb : vb - va;   // tempo: menor primeiro
-  };
-  linhas.sort(ordem);
+  const linhas = ordenarHierarquia(statsIncorporadoras(baseIncorporadoras()), 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
   const meses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
+  const marca = v => v ? `<b>${v}</b>` : '·';
   const tot = linhas.reduce((s, l) => ({
     projetos: s.projetos + l.projetos, unidades: s.unidades + l.unidades,
     protocolo: s.protocolo + l.protocolo, aprovados: s.aprovados + l.aprovados,
     lancados: s.lancados + l.lancados, prazos: s.prazos.concat(l.prazos),
   }), { projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] });
   const sub = $('#incSub');
-  if (sub) sub.textContent = `Lançado = lançamento até ${ymLabel(rEguaLancamento())} (início do filtro) · tempo de aprovação = protocolo → aprovação`;
-  alvo.innerHTML = `<thead><tr>
-      <th>INCORPORADORA</th><th class="th-r">PROJETOS</th><th class="th-r">UNIDADES</th>
-      <th class="th-r">EM PROTOCOLO</th><th class="th-r">APROVADOS</th><th class="th-r">LANÇADOS</th>
-      <th class="th-r">APROV. MEDIANA</th><th class="th-r">APROV. MÉDIA</th><th class="th-r">AMOSTRA</th>
-    </tr></thead><tbody>
-    ${linhas.map(l => `<tr>
+  if (sub) sub.textContent = incJanela()
+    ? `Projetos protocolados ou aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · não obedece ao filtro de período de lançamento · lançado = lançamento até ${ymLabel(rEguaLancamento())}`
+    : `Toda a base, sem recorte de período · lançado = lançamento até ${ymLabel(rEguaLancamento())} · tempo de aprovação = protocolo → aprovação`;
+  const cols = [
+    { k: 'nome', label: 'INCORPORADORA / EMPREENDIMENTO' },
+    { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
+    { k: 'protocolo', label: 'EM PROTOCOLO', num: true }, { k: 'aprovados', label: 'APROVADOS', num: true },
+    { k: 'lancados', label: 'LANÇADOS', num: true },
+    { k: 'medianaAprov', label: 'APROV. MEDIANA', num: true }, { k: 'mediaAprov', label: 'APROV. MÉDIA', num: true },
+    { k: 'amostra', label: 'AMOSTRA', num: true },
+  ];
+  let html = cabecalhoOrdenavel('incTable', cols) + '<tbody>';
+  linhas.forEach((l, gi) => {
+    html += `<tr class="group" data-g="${gi}">
       <td>${escapeHtml(l.nome)}</td>
       <td class="num">${fmtInt(l.projetos)}</td>
       <td class="num">${fmtInt(l.unidades)}</td>
@@ -1748,8 +1861,22 @@ function renderIncorporadoras() {
       <td class="num">${meses(l.medianaAprov)}</td>
       <td class="num">${meses(l.mediaAprov)}</td>
       <td class="num">${l.amostra || '—'}</td>
-    </tr>`).join('')}
-    <tr class="tot-row">
+    </tr>`;
+    l.filhos.forEach(f => {
+      html += `<tr class="leaf" data-g="${gi}" data-id="${escapeHtml(String(f.id ?? ''))}">
+        <td>${escapeHtml(f.nome)}</td>
+        <td class="num">·</td>
+        <td class="num">${fmtInt(f.unidades)}</td>
+        <td class="num">${marca(f.protocolo)}</td>
+        <td class="num">${marca(f.aprovados)}</td>
+        <td class="num">${marca(f.lancados)}</td>
+        <td class="num">${meses(f.medianaAprov)}</td>
+        <td class="num">${meses(f.mediaAprov)}</td>
+        <td class="num">${f.amostra || '—'}</td>
+      </tr>`;
+    });
+  });
+  html += `<tr class="tot-row">
       <td>TOTAL · ${linhas.length} incorporadoras</td>
       <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
       <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
@@ -1757,6 +1884,10 @@ function renderIncorporadoras() {
       <td class="num">${meses(mediana(tot.prazos))}</td><td class="num">${meses(media(tot.prazos))}</td>
       <td class="num">${tot.prazos.length || '—'}</td>
     </tr></tbody>`;
+  alvo.innerHTML = html;
+  ligarHierarquia('incTable');
+  ligarOrdenacao('incTable', renderIncorporadoras);
+  $$('#incTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
 /* ---------- concentração por bairro / macrozona ---------- */
@@ -1767,36 +1898,63 @@ function renderConcentracao() {
   const acc = {};
   filtered.forEach(e => {
     const k = chave(e);
-    const a = acc[k] = acc[k] || { k, emps: 0, unidades: 0, area: 0, incs: new Set(), areas: [] };
+    const a = acc[k] = acc[k] || { k, emps: 0, unidades: 0, area: 0, incs: new Set(), areas: [], itens: [] };
+    a.itens.push(e);
     a.emps += 1;
     a.unidades += e.totalUnidades || 0;
     a.area += e.areaTerreno || 0;
     if (e.incorporadora) a.incs.add(e.incorporadora);
     (e.tipologias || []).forEach(t => { if (t.area != null && t.unids) a.areas.push([t.area, t.unids]); });
   });
-  const linhas = Object.values(acc).sort((a, b) => b.unidades - a.unidades);
-  const totUn = linhas.reduce((s, l) => s + l.unidades, 0) || 1;
-  const maior = linhas[0]?.unidades || 1;
-  const areaMedia = l => {
-    const u = l.areas.reduce((s, [, n]) => s + n, 0);
-    return u ? l.areas.reduce((s, [a, n]) => s + a * n, 0) / u : null;
+  const areaMedia = areas => {
+    const u = areas.reduce((s, [, n]) => s + n, 0);
+    return u ? areas.reduce((s, [a, n]) => s + a * n, 0) / u : null;
   };
-  alvo.innerHTML = `<thead><tr>
-      <th>${concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO'}</th><th class="th-r">EMPREEND.</th>
-      <th class="th-r">UNIDADES</th><th class="th-r">% DO TOTAL</th><th>PARTICIPAÇÃO</th>
-      <th class="th-r">INCORPORADORAS</th><th class="th-r">M² MÉDIO</th><th class="th-r">M² TERRENO</th>
-    </tr></thead><tbody>
-    ${linhas.map(l => `<tr>
-      <td>${escapeHtml(l.k)}</td>
+  const totUn = Object.values(acc).reduce((s, l) => s + l.unidades, 0) || 1;
+  const linhasBrutas = Object.values(acc).map(l => ({
+    nome: l.k, emps: l.emps, unidades: l.unidades, pct: l.unidades * 100 / totUn,
+    incs: l.incs.size, m2: areaMedia(l.areas), area: l.area,
+    filhos: l.itens.map(e => ({
+      nome: e.empreendimento || '—', id: e.id, emps: null, unidades: e.totalUnidades || 0,
+      pct: (e.totalUnidades || 0) * 100 / totUn, incs: e.incorporadora || null,
+      m2: areaMedia((e.tipologias || []).filter(t => t.area != null && t.unids).map(t => [t.area, t.unids])),
+      area: e.areaTerreno || 0,
+    })),
+  }));
+  const linhas = ordenarHierarquia(linhasBrutas, 'concTable', (r, k) => r[k]);
+  const maior = Math.max(...linhasBrutas.map(l => l.unidades), 1);
+  const pct = v => v.toFixed(1).replace('.', ',') + '%';
+  const barra = v => `<td class="conc-bar"><i style="width:${Math.max(2, Math.min(100, v * 100 / maior))}%"></i></td>`;
+  let html = cabecalhoOrdenavel('concTable', [
+    { k: 'nome', label: (concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO') + ' / EMPREENDIMENTO' },
+    { k: 'emps', label: 'EMPREEND.', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
+    { k: 'pct', label: '% DO TOTAL', num: true }, { label: 'PARTICIPAÇÃO', fixa: true },
+    { k: 'incs', label: 'INCORPORADORAS', num: true }, { k: 'm2', label: 'M² MÉDIO', num: true },
+    { k: 'area', label: 'M² TERRENO', num: true },
+  ]) + '<tbody>';
+  linhas.forEach((l, gi) => {
+    html += `<tr class="group" data-g="${gi}">
+      <td>${escapeHtml(l.nome)}</td>
       <td class="num">${fmtInt(l.emps)}</td>
       <td class="num">${fmtInt(l.unidades)}</td>
-      <td class="num">${(l.unidades * 100 / totUn).toFixed(1).replace('.', ',')}%</td>
-      <td class="conc-bar"><i style="width:${Math.max(2, l.unidades * 100 / maior)}%"></i></td>
-      <td class="num">${fmtInt(l.incs.size)}</td>
-      <td class="num">${areaMedia(l) == null ? '—' : fmtDec(areaMedia(l), 0)}</td>
+      <td class="num">${pct(l.pct)}</td>${barra(l.unidades)}
+      <td class="num">${fmtInt(l.incs)}</td>
+      <td class="num">${l.m2 == null ? '—' : fmtDec(l.m2, 0)}</td>
       <td class="num">${fmtInt(l.area)}</td>
-    </tr>`).join('')}
-    <tr class="tot-row">
+    </tr>`;
+    l.filhos.forEach(f => {
+      html += `<tr class="leaf" data-g="${gi}" data-id="${escapeHtml(String(f.id ?? ''))}">
+        <td>${escapeHtml(f.nome)}</td>
+        <td class="num">·</td>
+        <td class="num">${fmtInt(f.unidades)}</td>
+        <td class="num">${pct(f.pct)}</td>${barra(f.unidades)}
+        <td class="cell-txt">${escapeHtml(f.incs || '—')}</td>
+        <td class="num">${f.m2 == null ? '—' : fmtDec(f.m2, 0)}</td>
+        <td class="num">${fmtInt(f.area)}</td>
+      </tr>`;
+    });
+  });
+  html += `<tr class="tot-row">
       <td>TOTAL · ${linhas.length} ${concMode === 'macrozona' ? 'macrozonas' : 'bairros'}</td>
       <td class="num">${fmtInt(filtered.length)}</td>
       <td class="num">${fmtInt(totUn)}</td>
@@ -1805,6 +1963,10 @@ function renderConcentracao() {
       <td class="num"></td>
       <td class="num">${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</td>
     </tr></tbody>`;
+  alvo.innerHTML = html;
+  ligarHierarquia('concTable');
+  ligarOrdenacao('concTable', renderConcentracao);
+  $$('#concTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
 /* ---------- configurações (dock flutuante, padrão leadsebm) ---------- */
@@ -1847,11 +2009,10 @@ initAIChat();
 initSettingsPanel();
 initPlanoDiretor();
 initExpandir();
-$$('#incSort button').forEach(b => b.onclick = () => {
-  incSort = b.dataset.k;
-  $$('#incSort button').forEach(x => x.classList.toggle('active', x === b));
-  renderIncorporadoras();
-});
+const MESES_PROJ = mesesDe(['dataProtocolo', 'dataAprovacao']);
+ligarCampoMes(campoMes('incFrom', MESES_PROJ), v => { incFrom = v; renderIncorporadoras(); });
+ligarCampoMes(campoMes('incTo', MESES_PROJ), v => { incTo = v; renderIncorporadoras(); });
+$('#incClear').onclick = () => { incFrom = incTo = ''; $('#incFrom').value = $('#incTo').value = ''; renderIncorporadoras(); };
 $$('#concMode button').forEach(b => b.onclick = () => {
   concMode = b.dataset.c;
   $$('#concMode button').forEach(x => x.classList.toggle('active', x === b));
