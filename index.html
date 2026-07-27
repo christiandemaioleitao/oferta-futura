@@ -100,6 +100,7 @@
         <div><h2 data-editable>Mapa georreferenciado</h2><small data-editable>Empreendimentos, terrenos e localizações do KMZ</small></div>
         <div class="map-legend mono">
           <label><input type="checkbox" id="lyrEmp" checked /><i class="dot dot--red"></i>OFERTA FUTURA</label>
+          <span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:#0C1F55"></i>EBM</span>
           <label><input type="checkbox" id="lyrTerrenos" checked /><i class="dot dot--poly"></i>TERRENOS</label>
           <label><input type="checkbox" id="lyrPontos" /><i class="dot dot--navy"></i>LOCALIZAÇÕES KMZ</label>
         </div>
@@ -113,6 +114,12 @@
       <div class="chart-box"><canvas id="chartDisp"></canvas></div>
       <div class="card__head" style="margin-top:18px">
         <div><h2 data-editable>Lançamentos por mês</h2><small data-editable>Unidades lançadas por janela mensal</small></div>
+        <div class="seg mono" id="lancMode">
+          <button type="button" data-mode="month" class="active">Mês</button>
+          <button type="button" data-mode="quarter">Tri</button>
+          <button type="button" data-mode="year">Ano</button>
+          <button type="button" data-mode="ltm">LTM</button>
+        </div>
       </div>
       <div class="chart-box chart-box--sm"><canvas id="chartLanc"></canvas></div>
     </div>
@@ -198,6 +205,16 @@
     </div>
   </div>
   <div class="ficha__foot mono"><span data-editable>EBM Inteligência · Dados que orientam decisões</span><span id="fUpdated"></span></div>
+</div>
+
+<!-- ================= CONFIGURAÇÕES (dock flutuante) ================= -->
+<div class="settings-dock" id="settingsDock">
+  <button class="gear-fab" id="settingsBtn" type="button" title="Menu de configurações" aria-label="Menu de configurações" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Zm8.2 3.8c0-.5-.1-1-.2-1.5l2-1.5-2-3.5-2.4 1a8.3 8.3 0 0 0-2.6-1.5L14.7 2H9.3L9 5a8.3 8.3 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a8.2 8.2 0 0 0 0 3l-2 1.5 2 3.5 2.4-1A8.3 8.3 0 0 0 9 19l.3 3h5.4l.3-3a8.3 8.3 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5c.1-.5.2-1 .2-1.5Z"></path></svg>
+  </button>
+  <div class="settings-panel" id="settingsPanel">
+    <label class="settings-row"><span><b>Edições</b><small>Ocultar lápis da página</small></span><input class="switch" id="editLockBtn" type="checkbox" title="Ocultar edições" aria-label="Ocultar edições" /></label>
+  </div>
 </div>
 
 <!-- ================= CHAT IA ================= -->

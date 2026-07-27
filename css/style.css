@@ -179,7 +179,7 @@ tr:hover .rt-name,tr.hl .rt-name{color:var(--red)}
 .link-ico.off{opacity:.22;pointer-events:none}
 
 /* ---------- ficha (tooltip redesign) ---------- */
-.ficha{position:fixed;z-index:300;width:min(760px,94vw);max-height:min(88vh,760px);overflow:auto;background:#fff;border-radius:16px;box-shadow:0 34px 90px rgba(8,16,38,.42);border:1px solid var(--hair)}
+.ficha{position:fixed;z-index:1200;width:min(760px,94vw);max-height:min(88vh,760px);overflow:auto;background:#fff;border-radius:16px;box-shadow:0 34px 90px rgba(8,16,38,.42);border:1px solid var(--hair)}
 .ficha.as-tip{pointer-events:none}
 .ficha__header{position:relative;background:var(--navy);color:#fff;padding:22px 26px 20px;overflow:hidden}
 .ficha__net{position:absolute;inset:0;width:100%;height:100%;opacity:.8;pointer-events:none}
@@ -228,6 +228,35 @@ tr:hover .rt-name,tr.hl .rt-name{color:var(--red)}
 .edit-pencil:hover{background:#fff;color:var(--red);border-color:rgba(227,10,18,.28)}
 .top .edit-pencil,.ficha__header .edit-pencil{color:#fff;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.18)}
 .text-editing{outline:2px solid rgba(227,10,18,.28);outline-offset:3px;border-radius:4px}
+.edits-locked .edit-pencil{display:none!important}
+.edits-locked .editable-wrap{gap:0}
+
+/* ---------- seg (modos de período do gráfico) ---------- */
+.seg{display:inline-flex;gap:3px;background:var(--paper);border:1px solid var(--hair);border-radius:9px;padding:3px}
+.seg button{border:0;background:none;border-radius:7px;padding:6px 12px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--gray-600);cursor:pointer;transition:all .14s}
+.seg button:hover{color:var(--navy);background:#fff}
+.seg button.active{background:var(--navy);color:#fff;box-shadow:0 4px 10px rgba(12,31,85,.18)}
+
+/* ---------- dock de configurações (flutuante, padrão leadsebm) ---------- */
+.settings-dock{position:fixed;left:24px;bottom:24px;z-index:320;pointer-events:none}
+.settings-dock .gear-fab{width:60px;height:60px;border:0;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 18px 42px rgba(12,31,85,.28),0 4px 10px rgba(12,31,85,.14);pointer-events:auto;transition:transform .2s ease,background .2s ease}
+.settings-dock .gear-fab:hover{background:var(--red);transform:translateY(-2px) scale(1.04)}
+.settings-dock.open .gear-fab{background:var(--red)}
+.settings-dock .gear-fab svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
+.settings-panel{display:none;position:absolute;left:0;bottom:74px;width:min(268px,calc(100vw - 32px));padding:10px;border:1px solid rgba(12,31,85,.12);border-radius:14px;background:rgba(255,255,255,.95);backdrop-filter:blur(12px);box-shadow:0 18px 42px rgba(12,31,85,.18);pointer-events:auto}
+.settings-dock.open .settings-panel{display:block}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px;border-radius:10px;color:var(--navy);cursor:pointer}
+.settings-row:hover{background:#F4F6F9}
+.settings-row span{display:grid;gap:2px}
+.settings-row b{font-size:12px;font-family:var(--font-display)}
+.settings-row small{font-size:10px;color:var(--gray-600)}
+.switch{position:relative;height:1.5rem;width:3rem;cursor:pointer;appearance:none;-webkit-appearance:none;border-radius:9999px;background-color:rgba(12,31,85,.22);transition:all .3s ease;box-shadow:inset 0 0 0 1px rgba(12,31,85,.10);flex:0 0 auto}
+.switch:checked{background-color:var(--red)}
+.switch::before{position:absolute;content:"";left:-.1rem;top:-.05rem;display:block;height:1.6rem;width:1.6rem;cursor:pointer;border:1px solid rgba(12,31,85,.24);border-radius:9999px;background-color:#fff;box-shadow:0 3px 10px rgba(12,31,85,.22);transition:all .3s ease}
+.switch:hover::before{box-shadow:0 0 0 8px rgba(12,31,85,.10)}
+.switch:checked:hover::before{box-shadow:0 0 0 8px rgba(227,10,18,.14)}
+.switch:checked::before{transform:translateX(100%);border-color:var(--red)}
+@media(max-width:640px){.settings-dock{left:16px;bottom:16px}.settings-panel{bottom:68px}}
 
 /* ---------- chat IA (leadsebm) ---------- */
 .ai-chat{position:fixed;right:24px;bottom:24px;z-index:360;display:flex;align-items:flex-end;gap:12px}

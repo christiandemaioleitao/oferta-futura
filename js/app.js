@@ -281,10 +281,12 @@ function renderMap() {
   filtered.forEach(e => {
     if (e.lat == null || e.lng == null) return;
     pts.push([e.lat, e.lng]);
-    const mk = L.circleMarker([e.lat, e.lng], { radius: 8, color: '#fff', weight: 2, fillColor: RED, fillOpacity: .95 });
+    const isEbm = textKey(e.incorporadora) === 'EBM';
+    const base = isEbm ? NAVY : RED, hover = isEbm ? RED : NAVY;
+    const mk = L.circleMarker([e.lat, e.lng], { radius: 8, color: '#fff', weight: 2, fillColor: base, fillOpacity: .95 });
     mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(e.empreendimento)}</b><span class="mono">${escapeHtml(e.bairro || '')} · ${ymLabel((e.dtLancamento || '').slice(0, 7))} · ${fmtInt(e.totalUnidades)} UNIDS</span><button onclick="window.openFichaById('${e.id}')">VER FICHA COMPLETA</button></div>`);
-    mk.on('mouseover', function () { this.setStyle({ fillColor: NAVY, radius: 10 }); });
-    mk.on('mouseout', function () { this.setStyle({ fillColor: RED, radius: 8 }); });
+    mk.on('mouseover', function () { this.setStyle({ fillColor: hover, radius: 10 }); });
+    mk.on('mouseout', function () { this.setStyle({ fillColor: base, radius: 8 }); });
     mk.addTo(empLayer);
   });
   if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.15));
@@ -303,6 +305,23 @@ function monthlySeries(emps) {
 function launchSeries(emps) {
   const acc = {};
   emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) acc[m] = (acc[m] || 0) + (e.totalUnidades || 0); });
+  return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
+}
+/* modos do gráfico de lançamentos: mês, trimestre, ano, LTM (regras do dashboard leadsebm) */
+let lancMode = 'month';
+const periodKeyOF = (m, mode) => mode === 'year' ? m.slice(0, 4) : mode === 'quarter' ? m.slice(0, 4) + '-T' + Math.ceil(+m.slice(5, 7) / 3) : m;
+const periodLabelOF = (k, mode) => mode === 'year' ? k : mode === 'quarter' ? 'T' + k.slice(6) + '/' + k.slice(2, 4) : mode === 'ltm' ? ymLabel(k) + ' LTM' : ymLabel(k);
+function ltmLaunchSeries(emps) {
+  const monthly = launchSeries(emps);
+  const idx = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
+  const map = new Map(monthly.map(([m, v]) => [idx(m), v]));
+  return monthly.map(([m]) => { const i = idx(m); let s = 0; for (let k = i - 11; k <= i; k++) s += map.get(k) || 0; return [m, s]; });
+}
+function launchSeriesByMode(emps, mode) {
+  if (mode === 'ltm') return ltmLaunchSeries(emps);
+  if (mode === 'month') return launchSeries(emps);
+  const acc = {};
+  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) { const k = periodKeyOF(m, mode); acc[k] = (acc[k] || 0) + (e.totalUnidades || 0); } });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
 function renderCharts() {
@@ -324,12 +343,13 @@ function renderCharts() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : '') } } },
       scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
   });
-  const lserie = launchSeries(filtered);
+  const lserie = launchSeriesByMode(filtered, lancMode);
+  const lref = lancMode === 'ltm' ? ref : periodKeyOF(ref, lancMode);
   if (chartLanc) chartLanc.destroy();
   chartLanc = new Chart($('#chartLanc'), {
     type: 'bar',
-    data: { labels: lserie.map(x => ymLabel(x[0])), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === ref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + ' unidades lançadas' } } },
+    data: { labels: lserie.map(x => periodLabelOF(x[0], lancMode)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + (lancMode === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas') } } },
       scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
   });
 }
@@ -1169,6 +1189,26 @@ function initAIChat() {
   resizeAIQuestion();
 }
 
+/* ---------- configurações (dock flutuante, padrão leadsebm) ---------- */
+function setEditLock(locked) {
+  document.body.classList.toggle('edits-locked', locked);
+  const btn = $('#editLockBtn');
+  if (btn) { btn.checked = locked; const label = locked ? 'Mostrar edições' : 'Ocultar edições'; btn.title = label; btn.setAttribute('aria-label', label); }
+  localStorage.setItem('ofDashboardEditsLocked', locked ? '1' : '0');
+}
+function initSettingsPanel() {
+  const dock = $('#settingsDock'), btn = $('#settingsBtn');
+  if (!dock || !btn) return;
+  const setOpen = open => { dock.classList.toggle('open', open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+  btn.onclick = e => { e.stopPropagation(); setOpen(!dock.classList.contains('open')); };
+  dock.onclick = e => e.stopPropagation();
+  document.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+  setEditLock(localStorage.getItem('ofDashboardEditsLocked') === '1');
+  const lock = $('#editLockBtn');
+  if (lock) lock.onchange = () => setEditLock(lock.checked);
+}
+
 /* ---------- init ---------- */
 makeField($('#headerNet'), { w: 1400, h: 190, n: 30, color: NAVY7, dist: 220, lineOp: .5, dotOp: .55 });
 linkKmzFeatures();
@@ -1177,3 +1217,9 @@ initMap();
 applyAll();
 initEditableText();
 initAIChat();
+initSettingsPanel();
+$$('#lancMode button').forEach(b => b.onclick = () => {
+  lancMode = b.dataset.mode;
+  $$('#lancMode button').forEach(x => x.classList.toggle('active', x === b));
+  renderCharts();
+});
