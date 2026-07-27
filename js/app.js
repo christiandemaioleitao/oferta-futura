@@ -11,10 +11,17 @@ const fmtDec = (n, d = 1) => (n == null || isNaN(n)) ? '—' : n.toLocaleString(
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const textKey = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
 const ymLabel = m => m ? MESES[+m.slice(5, 7) - 1] + '/' + m.slice(2, 4) : '—';
-/* status do empreendimento: a fonte da data diz se ja lancou ou ainda e previsao */
-const statusEmp = e => textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO';
 const dateBR = s => { if (!s) return null; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s; };
 const nowYM = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+/* Status do empreendimento: quem decide é a DATA de lançamento contra o mês atual.
+   FonteDataLancamento diz de onde veio a data ('INCORPORADORA', 'EBM', 'JORNAL O POPULAR'),
+   não se o produto lançou — lê-la como status marcava de PREVISTO empreendimentos cujo
+   lançamento já tinha passado. A fonte só entra como confirmação quando diz LANÇADO. */
+const statusEmp = e => {
+  const m = (e.dtLancamento || '').slice(0, 7);
+  if (m && m <= nowYM()) return 'LANÇADO';
+  return textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO';
+};
 
 /* ---------- dados ---------- */
 let DATA = window.OF_DATA || { empreendimentos: [], historico: [], geradoEm: '', fonte: '' };
@@ -127,7 +134,7 @@ function buildFilters() {
   buildMultiselect('tipo', uniqueVals(e => e.tipo));
   const tips = new Set();
   DATA.empreendimentos.forEach(e => (e.tipologias || []).forEach(t => tips.add(String(t.tratada != null ? t.tratada : t.tipologia))));
-  buildMultiselect('tipologia', [...tips].sort().map(v => ({ id: v, label: /^\d+$/.test(v) ? v + ' quartos' : v })));
+  buildMultiselect('tipologia', [...tips].sort().map(v => ({ id: v, label: rotuloTipologia(v) })));
   buildMultiselect('faixa', FAIXAS.map(f => ({ id: f.id, label: f.label })));
 }
 
@@ -471,11 +478,22 @@ function launchSeries(emps) {
 }
 /* visão Detalhado: quebra por nº de quartos (0 = comercial) ou por faixa de m² */
 let detalhado = false, detMode = 'tip';
-const TIP_KEYS = ['1', '2', '3', '4', '0'];
-const TIP_LABELS = { '0': 'COMERCIAL', '1': '1Q', '2': '2Q', '3': '3Q', '4': '4Q+' };
-const TIP_COLORS = { '1': '#9DB2D9', '2': '#5B79B4', '3': '#3A5AA0', '4': '#0C1F55', '0': '#C8102E' };
+/* 'sem' = tipologia não informada. Existe pelo mesmo motivo do 'f0' da faixa de m²:
+   sem um balde para o desconhecido, essas unidades ou somem do gráfico ou entram
+   como COMERCIAL — que é o código 0 de verdade, e aí vira dado inventado. */
+const TIP_KEYS = ['1', '2', '3', '4', '0', 'sem'];
+const TIP_LABELS = { '0': 'COMERCIAL', '1': '1Q', '2': '2Q', '3': '3Q', '4': '4Q+', sem: 'SEM TIPOLOGIA INFORMADA' };
+const TIP_COLORS = { '1': '#9DB2D9', '2': '#5B79B4', '3': '#3A5AA0', '4': '#0C1F55', '0': '#C8102E', sem: '#98A2B3' };
 const FAIXA_COLORS = { f1: '#C3D0E8', f2: '#9DB2D9', f3: '#6E8CC4', f4: '#3A5AA0', f5: '#1B336E', f6: '#0C1F55', f0: '#98A2B3' };
-const tipKeyOf = t => { const n = Number(t != null && t.tratada != null ? t.tratada : t); return Number.isFinite(n) && n > 0 ? String(Math.min(Math.round(n), 4)) : '0'; };
+const tipKeyOf = t => {
+  const v = t != null && t.tratada !== undefined ? t.tratada : t;
+  if (v == null || v === '') return 'sem';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 'sem';
+  return n > 0 ? String(Math.min(Math.round(n), 4)) : '0';   // 0 é comercial de verdade
+};
+/* rótulo de uma tipologia crua ('0', '2', 'Sala Comercial'): 0 é COMERCIAL, não "0Q" */
+const rotuloTipologia = v => /^\d+$/.test(String(v)) ? (TIP_LABELS[tipKeyOf(v)] || String(v)) : String(v);
 /* 'f0' = área privativa não informada; sem esse balde a quebra por faixa não fecha com o total */
 const faixaKeyOf = t => { const a = t && t.area; if (a == null) return 'f0'; const f = FAIXAS.find(f => a >= f.min && a < f.max); return f ? f.id : 'f0'; };
 /* configuração da quebra ativa — o pipeline grava as duas em cada mês (campos tip e fx) */
@@ -483,8 +501,8 @@ function quebra() {
   return detMode === 'faixa'
     ? { keys: [...FAIXAS.map(f => f.id), 'f0'],
         labels: { ...Object.fromEntries(FAIXAS.map(f => [f.id, f.label.toUpperCase()])), f0: 'SEM ÁREA INFORMADA' },
-        colors: FAIXA_COLORS, campo: 'fx', keyOf: faixaKeyOf }
-    : { keys: TIP_KEYS, labels: TIP_LABELS, colors: TIP_COLORS, campo: 'tip', keyOf: tipKeyOf };
+        colors: FAIXA_COLORS, campo: 'fx', keyOf: faixaKeyOf, semInfo: 'f0' }
+    : { keys: TIP_KEYS, labels: TIP_LABELS, colors: TIP_COLORS, campo: 'tip', keyOf: tipKeyOf, semInfo: 'sem' };
 }
 function monthlySeriesTip(emps) { // meses ordenados + série de disponíveis por chave da quebra
   const q = quebra(), acc = {};
@@ -494,12 +512,11 @@ function monthlySeriesTip(emps) { // meses ordenados + série de disponíveis po
     const dados = x[q.campo];
     if (dados && Object.keys(dados).length) {
       Object.entries(dados).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
-    } else if (x.disp) { // sem quebra gravada: rateia pela participação das tipologias
-      const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
-      (e.tipologias || []).forEach(t => {
-        const k = q.keyOf(t); if (!k) return;
-        cel[k] = (cel[k] || 0) + x.disp * (tot ? (t.unids || 0) / tot : 0);
-      });
+    } else if (x.disp) {
+      /* sem quebra gravada (base importada por Excel, p.ex.): vai inteiro para o balde
+         "sem informação". Ratear pela participação das tipologias daria um desenho
+         convincente e falso — o total continua certo, a distribuição seria inventada. */
+      cel[q.semInfo] = (cel[q.semInfo] || 0) + x.disp;
     }
   }));
   const months = Object.keys(acc).sort();
@@ -509,7 +526,9 @@ function launchUnitsByTip(e) { // unidades lançadas do empreendimento pela queb
   const q = quebra(), out = {};
   const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
   if (tot) (e.tipologias || []).forEach(t => { const k = q.keyOf(t); if (k) out[k] = (out[k] || 0) + (t.unids || 0); });
-  else if (e.totalUnidades && detMode === 'tip') out['0'] = e.totalUnidades;
+  // empreendimento sem tipologia cadastrada: as unidades vão para o balde "sem informação",
+  // nos dois modos. Antes caíam em COMERCIAL no modo tipologia e sumiam no modo faixa.
+  else if (e.totalUnidades) out[q.semInfo] = e.totalUnidades;
   return out;
 }
 /* modos do gráfico de lançamentos: mês, trimestre, ano, LTM (regras do dashboard leadsebm) */
@@ -771,7 +790,7 @@ function renderPivot() {
   const celula = v => v ? fmtInt(v) : '·';
   let html = cabecalhoOrdenavel('pivotTable', [
     { k: 'g', label: 'TIPO / EMPREENDIMENTO' },
-    ...cols.map(c => ({ k: c, label: escapeHtml(/^\d+$/.test(c) ? c + 'Q' : c), num: true })),
+    ...cols.map(c => ({ k: c, label: escapeHtml(rotuloTipologia(c)), num: true })),
     { k: 'total', label: 'TOTAL', num: true },
   ]) + '<tbody>';
   ordenadas.forEach((l, gi) => {
@@ -838,7 +857,7 @@ function elapsedLabel(from, to) {
 function fillFicha(e) {
   $('#fName').textContent = e.empreendimento || '—';
   $('#fLoc').textContent = [e.bairro, [e.cidade, e.uf].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
-  const lanc = textKey(e.fonteDataLancamento || '').includes('LANC');
+  const lanc = statusEmp(e) === 'LANÇADO';
   $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : e.semData ? '<span class="badge badge--red" style="background:#8A93A6">SEM PREVISÃO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
     + (e.projetoProtocolado ? '<span class="badge badge--outline">PROJETO</span>' : '');
   $('#fInc').textContent = e.incorporadora || '—';
@@ -847,7 +866,10 @@ function fillFicha(e) {
   $('#fFonteLan').textContent = e.fonteDataLancamento || '—';
   $('#fFontePrev').textContent = e.fontePrevisao || '—';
   const tips = (e.tipologias || []).slice().sort((a, b) => (a.area || 0) - (b.area || 0));
-  $('#fTips').innerHTML = tips.map(t => `<tr><td>${escapeHtml(t.tipologia || (t.tratada + 'Q'))}</td><td class="td-num">${fmtInt(t.unids)}</td><td class="td-num">${t.area != null ? fmtDec(t.area, 0) + ' m²' : '—'}</td></tr>`).join('') || '<tr><td colspan="3" style="color:var(--gray-400)">Sem tipologias informadas</td></tr>';
+  // sem rótulo no cadastro, cai no mesmo dicionário dos gráficos: 0 é COMERCIAL,
+  // não "0Q" — e tipologia não informada fica em branco em vez de virar quartos
+  const rotuloTip = t => t.tipologia || TIP_LABELS[tipKeyOf(t)] || '—';
+  $('#fTips').innerHTML = tips.map(t => `<tr><td>${escapeHtml(rotuloTip(t))}</td><td class="td-num">${fmtInt(t.unids)}</td><td class="td-num">${t.area != null ? fmtDec(t.area, 0) + ' m²' : '—'}</td></tr>`).join('') || '<tr><td colspan="3" style="color:var(--gray-400)">Sem tipologias informadas</td></tr>';
   const proto = dateBR(e.dataProtocolo);
   $('#fProto').textContent = proto || '—';
   // sem protocolo não há o que analisar: aprovação fica em branco; com protocolo e sem aprovação = em análise

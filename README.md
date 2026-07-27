@@ -237,7 +237,24 @@ Unidades por tipologia, desempenho por incorporadora e concentração por bairro
 
 A ficha mostrava `FONTE DA TIPOLOGIA: PROJETO` sempre que o campo vinha em branco, por causa de um `|| 'PROJETO'` que estava lá desde o primeiro commit do dashboard. Era um dado fabricado com cara de dado real, e o pior: existe um empreendimento em que `PROJETO` é o valor verdadeiro, então não dava para distinguir um do outro olhando a tela.
 
-Regra: em campo de exibição, o *fallback* é sempre `—`. Se um valor faz sentido como padrão, ele tem que vir do pipeline e ficar gravado na base, nunca ser inventado na hora de desenhar a tela.
+Regra: em campo de exibição, o *fallback* é sempre `—`. Se um valor faz sentido como padrão, ele tem que vir do pipeline e ficar gravado na base, nunca ser inventado na hora de desenhar a tela. Para uma categoria, o padrão é um balde explícito de desconhecido (`SEM TIPOLOGIA INFORMADA`, `SEM ÁREA INFORMADA`, `SEM MACROZONA`), nunca uma categoria real.
+
+A varredura que veio depois desse achado encontrou mais quatro:
+
+1. **`0Q` no lugar de `COMERCIAL`.** `tipologia_tratada = 0` é comercial, mas a ficha, a matriz de unidades por tipologia e o filtro montavam o rótulo concatenando `valor + 'Q'` — saía "0Q" e "0 quartos". Agora os três usam o mesmo dicionário `TIP_LABELS` dos gráficos, via `rotuloTipologia()`.
+2. **Unidades sem tipologia viravam COMERCIAL.** Empreendimento sem nenhuma tipologia cadastrada tinha o total jogado no balde `'0'` no modo Tipologias — e sumia no modo Faixa de m². Agora vai para `SEM TIPOLOGIA INFORMADA` nos dois modos.
+3. **`tratada` nulo virava COMERCIAL.** `tipKeyOf` mandava qualquer valor não numérico para `'0'`. Agora só um `0` de verdade é comercial; nulo e vazio vão para o balde de desconhecido.
+4. **Rateio da quebra mensal.** Quando o mês não trazia a quebra gravada (base importada por Excel), o front distribuía as disponíveis pela participação das tipologias. O total ficava certo e a distribuição era inventada — um desenho convincente e falso. Agora o mês inteiro cai no balde de desconhecido.
+
+### 13j. "Lançado" vem da data, não do campo de procedência
+
+`FonteDataLancamento` responde *de onde veio a data* — os valores reais na base são `LANÇADO`, `INCORPORADORA`, `EBM`, `JORNAL O POPULAR` e, em 54 dos 87 empreendimentos, vazio. O `statusEmp` tratava esse campo como status: só marcava `LANÇADO` quem tivesse a palavra "LANC" ali, e todo o resto virava `PREVISTO`.
+
+O resultado era um dashboard afirmando 19 lançados quando 35 já tinham data de lançamento no passado — inclusive projetos com lançamento em fev/26 aparecendo como "previsto" em jul/26. O campo não erra; ele só não responde essa pergunta.
+
+Agora quem decide é a data contra o mês de referência: `dtLancamento <= mês atual` → `LANÇADO`. A fonte entra apenas como confirmação, para o caso de um cadastro afirmar o lançamento antes da data chegar. Vale para o selo da ficha, a coluna STATUS do Excel e a do PDF de apresentação.
+
+Isso é diferente da régua da tabela por incorporadora ([13. Desempenho por incorporadora](#13-desempenho-por-incorporadora-tem-período-próprio)), que compara com o **início do período filtrado** de propósito, para a leitura não mudar conforme o recorte.
 
 ### 13f. Terrenos sem previsão ignoram só o filtro de período
 
