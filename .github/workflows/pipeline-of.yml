@@ -58,7 +58,7 @@ jobs:
           # autor = dono da conta Vercel, senão o deploy automático é bloqueado (Hobby)
           git config user.name "Christian Leitao"
           git config user.email "christiandemaio80@gmail.com"
-          git add data/dados_of.js data/mapa_of.js
+          git add data/dados_of.js data/mapa_of.js index.html
           if git diff --cached --quiet; then
             echo "Sem mudanças nos dados."
           else

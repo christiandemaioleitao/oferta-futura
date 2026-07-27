@@ -20,6 +20,7 @@ Parâmetros (variáveis de ambiente, com os padrões do último processamento):
   FATOR_AJUSTE    float    fator multiplicador da curva          (padrão 1.0)
 """
 import os
+import re
 from datetime import datetime
 
 import numpy as np
@@ -296,6 +297,23 @@ def ler_sintese_neon(conn):
     return df
 
 
+def atualizar_cache_buster():
+    """Renova o ?v= do index.html com o carimbo desta execução.
+
+    Sem isso o navegador continua servindo o data/dados_of.js anterior: o arquivo
+    muda, a URL não, e o dashboard fica mostrando a base da execução passada.
+    """
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'index.html')
+    with open(caminho, encoding='utf-8') as fh:
+        html = fh.read()
+    token = datetime.now().strftime('%Y%m%d-%H%M')
+    novo = re.sub(r'\?v=[A-Za-z0-9.\-]+', '?v=' + token, html)
+    if novo != html:
+        with open(caminho, 'w', encoding='utf-8', newline='') as fh:
+            fh.write(novo)
+        print(f'  cache-buster do index.html: ?v={token}')
+
+
 def main():
     load_env()
     lancto_ini = os.environ.get('OF_LANCTO_INI', '01/2026')
@@ -443,6 +461,7 @@ def main():
     # -------- gera dados do dashboard --------
     print('Gerando dados do dashboard...')
     preprocess.gerar_de_dataframe(df_master, fonte='projecao_of (Neon)')
+    atualizar_cache_buster()
     print('Pipeline concluído.')
 
 

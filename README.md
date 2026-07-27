@@ -227,6 +227,10 @@ Toda tabela ordena pelo cabeçalho: coluna de texto começa em A→Z, coluna num
 
 Unidades por tipologia, desempenho por incorporadora e concentração por bairro são hierárquicas: a linha de grupo abre os empreendimentos que a compõem. A ordenação vale nos dois níveis — grupos entre si e folhas dentro de cada grupo (`ordenarHierarquia`). Clicar numa folha centraliza o empreendimento no mapa.
 
+### 13e. O `?v=` do index.html é carimbado pelo pipeline
+
+Os arquivos de dados são servidos com `?v=<carimbo>`. Se o pipeline reescreve `data/dados_of.js` e o `?v=` continua o mesmo, o navegador serve a versão anterior do cache — o dashboard mostra a base da execução passada sem erro nenhum. Por isso `atualizar_cache_buster()` reescreve o token com a data e hora da execução no fim do pipeline, e o workflow commita o `index.html` junto com os dados. Em mudança só de código, o token é bumpado à mão no commit.
+
 ### 13d. O desfoque do "expandir" fica no overlay, não num ancestral
 
 `filter: blur()` num ancestral desfoca também o card expandido — e, pior, transforma o ancestral em bloco de contenção do `position: fixed`, jogando o card para fora do viewport. Por isso o desfoque é `backdrop-filter` no `.expand-back`, que fica atrás do card. O `resize()` dos gráficos roda dentro de um `requestAnimationFrame`, depois que o layout novo já valeu — se rodar antes, o canvas é refeito no tamanho antigo e sai borrado.
