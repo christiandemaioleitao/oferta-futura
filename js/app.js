@@ -1264,7 +1264,7 @@ const AI_PROVIDERS = {
   openai: { label: 'OpenAI', type: 'chat', endpoint: 'https://api.openai.com/v1/chat/completions', models: ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'] },
   deepseek: { label: 'DeepSeek', type: 'chat', endpoint: 'https://api.deepseek.com/chat/completions', models: ['deepseek-chat', 'deepseek-reasoner'] },
   mistral: { label: 'Mistral', type: 'chat', endpoint: 'https://api.mistral.ai/v1/chat/completions', models: ['mistral-small-latest', 'mistral-large-latest', 'open-mistral-nemo'] },
-  openrouter: { label: 'OpenRouter', type: 'chat', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [{ id: 'z-ai/glm-5.2', label: 'GLM 5.2 · Z.ai' }, { id: 'deepseek/deepseek-v4-pro', label: 'DeepSeek V4 Pro' }, { id: 'openai/gpt-5.5', label: 'GPT-5.5 · OpenAI' }, { id: 'anthropic/claude-opus-4.7', label: 'Claude Opus 4.7' }, { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' }, { id: 'qwen/qwen3.7-max', label: 'Qwen3.7 Max' }, { id: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash' }] },
+  openrouter: { label: 'OpenRouter', type: 'chat', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [{ id: 'xiaomi/mimo-v2.5', label: 'MiMo v2.5 · Xiaomi' }, { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' }, { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'Nemotron 3 Ultra 550B · free' }, { id: 'minimax/minimax-m3', label: 'MiniMax M3' }, { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B · OpenAI' }] },
   gemini: { label: 'Gemini', type: 'gemini', models: [{ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }, { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' }] },
   anthropic: { label: 'Anthropic', type: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }, { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' }, { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }] },
   groq: { label: 'Groq', type: 'chat', endpoint: 'https://api.groq.com/openai/v1/chat/completions', models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'] },
@@ -1300,51 +1300,53 @@ function appendAIMessage(role, text) {
   box.appendChild(div); box.scrollTop = box.scrollHeight;
   return div;
 }
-function buildDashboardContext() {
-  const m = salesAverages(filtered);
-  return {
-    dashboard: 'Oferta Futura — EBM Inteligência',
-    fonte: DATA.fonte, atualizado_em: DATA.geradoEm, mes_referencia: nowYM(),
-    filtros_ativos: filtersSummaryText(),
-    total_empreendimentos_filtrados: filtered.length,
-    total_unidades: filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0),
-    area_terreno_m2: Math.round(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0)),
-    media_mensal_vendas_mercado: m.avg, media_mensal_vendas_deflacionada: m.defl, projetos_historicos_usados_na_media: m.n,
-    oferta_disponivel_por_mes: monthlySeries(filtered).map(([mes, disp]) => ({ mes, unidades_disponiveis: Math.round(disp) })),
-    unidades_lancadas_por_mes: launchSeries(filtered).map(([mes, u]) => ({ mes, unidades: Math.round(u) })),
-    empreendimentos: filtered.map(e => ({
-      empreendimento: e.empreendimento, incorporadora: e.incorporadora, bairro: e.bairro, macrozona: mzLabel(e.macrozona),
-      tipo: e.tipo, lancamento_previsto: (e.dtLancamento || '').slice(0, 7), total_unidades: e.totalUnidades,
-      area_terreno_m2: e.areaTerreno, cluster: e.cluster, status: textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO',
-      protocolo: e.dataProtocolo, aprovacao: e.dataAprovacao,
-      tipologias: (e.tipologias || []).map(t => ({ tipologia: t.tipologia, unids: t.unids, area_m2: t.area })),
-    })),
-  };
-}
+/* o chat consulta o banco Neon (fonte da verdade) via /api/sql — não o JSON do dashboard */
+const SQL_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/sql' : 'https://oferta-futura.vercel.app/api/sql';
 function aiSystemPrompt() {
-  return 'Você é um analista de inteligência de mercado imobiliário da EBM Incorporadora (Goiânia). Responda em português do Brasil, de forma direta e assertiva, com números formatados em pt-BR, baseando-se EXCLUSIVAMENTE no JSON de contexto do dashboard Oferta Futura enviado junto à pergunta. O contexto reflete os filtros ativos do usuário. Se a pergunta fugir de oferta futura, lançamentos, empreendimentos, incorporadoras, bairros, tipologias, unidades, vendas de mercado ou dados do dashboard, diga que foge do escopo. Não invente dados ausentes.';
+  return `Você é um analista de inteligência de mercado imobiliário da EBM Incorporadora (Goiânia). Responda em português do Brasil, direto e assertivo, números em pt-BR.
+
+Você tem acesso ao banco Postgres (Neon) do dashboard Oferta Futura. Para responder QUALQUER pergunta sobre dados, PRIMEIRO consulte o banco: responda APENAS com um bloco ```sql ... ``` contendo um único SELECT (Postgres). O sistema executa e devolve as linhas em JSON; aí você responde ao usuário. Se precisar, encadeie até 3 consultas. Nunca invente números — use só o que vier do banco.
+
+Tabela principal: projecao_of — grão = tipologia × mês (projeção). Linhas com id_tipologia NOT NULL = projeção da OFERTA FUTURA (lançamentos previstos 2026-2027); linhas com id_tipologia NULL = histórico/projeção do mercado (síntese). Colunas principais (Postgres diferencia maiúsculas — use aspas duplas nos nomes com maiúscula ou especiais):
+- empreendimento, incorporadora, bairro, cidade, macrozona (text)
+- "TipoEmpreendimento" (ex.: 'APART - MAP', 'APART - ECO'), cluster, tipologia, tipologia_tratada (0=comercial, 1-4=quartos)
+- "dtlançamento" (date, mês de lançamento), data (date, mês da linha), lancamento ('sim' quando data = mês do lançamento)
+- "TotalUnidades" (unidades do empreendimento; repetida por linha — use MAX/DISTINCT), "Unids_tipologia" (unidades da tipologia), "AreaPrivativa" (m²)
+- unidadesdisponiveis, unidadesvendidasmes, unidadesdistratadasmes (por tipologia × mês)
+- "AreaTerreno", "Latitude", "Longitude", "Cidade.Uf", consideracao_OF, "LinkPortal"
+Dicas: oferta disponível por mês = SUM(unidadesdisponiveis) GROUP BY data (id_tipologia NOT NULL); unidades lançadas = somar "Unids_tipologia" das linhas com lancamento='sim'; um empreendimento tem várias tipologias — cuidado com dupla contagem de "TotalUnidades". Limite de 200 linhas por consulta — agregue no SQL.
+
+Também existe sintese_consolidada (mercado histórico bruto). Se a pergunta fugir do mercado imobiliário/dados do dashboard, diga que foge do escopo.`;
 }
-async function callAIProvider(question) {
+function aiUserContext() {
+  return `Mês de referência: ${nowYM()}. Filtros ativos no dashboard (apenas contexto; o banco não está filtrado): ${filtersSummaryText() || 'nenhum'}.`;
+}
+async function runNeonSQL(sql) {
+  const res = await fetch(SQL_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Falha ao consultar o banco.');
+  return data;
+}
+async function callAIProvider(messages) {
   const cfg = aiConfig(), p = AI_PROVIDERS[cfg.provider];
   if (!p || !cfg.key) throw new Error('Cadastre uma chave de API antes de perguntar.');
-  const context = JSON.stringify(buildDashboardContext()).slice(0, 52000);
-  const user = `Pergunta do usuário: ${question}\n\nContexto JSON do dashboard:\n${context}`;
   if (p.type === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: aiSystemPrompt() }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: .15, maxOutputTokens: 900 } }) });
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: aiSystemPrompt() }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { temperature: .15, maxOutputTokens: 1400 } }) });
     const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || 'Falha na API Gemini.');
     return (data.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('\n').trim();
   }
   if (p.type === 'anthropic') {
-    const res = await fetch(p.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: cfg.model, max_tokens: 900, temperature: .15, system: aiSystemPrompt(), messages: [{ role: 'user', content: user }] }) });
+    const res = await fetch(p.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: cfg.model, max_tokens: 1400, temperature: .15, system: aiSystemPrompt(), messages }) });
     const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || 'Falha na API Anthropic.');
     return (data.content || []).map(x => x.text || '').join('\n').trim();
   }
   const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key };
   if (cfg.provider === 'openrouter') { headers['HTTP-Referer'] = location.href || 'file://oferta-futura'; headers['X-Title'] = 'Oferta Futura EBM'; }
-  const res = await fetch(p.endpoint, { method: 'POST', headers, body: JSON.stringify({ model: cfg.model, temperature: .15, max_tokens: 900, messages: [{ role: 'system', content: aiSystemPrompt() }, { role: 'user', content: user }] }) });
+  const res = await fetch(p.endpoint, { method: 'POST', headers, body: JSON.stringify({ model: cfg.model, temperature: .15, max_tokens: 1400, messages: [{ role: 'system', content: aiSystemPrompt() }, ...messages] }) });
   const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || data.message || 'Falha na API selecionada.');
   return (data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '').trim();
 }
+const extractSQL = text => { const m = /```sql\s*([\s\S]*?)```/i.exec(text || ''); return m ? m[1].trim() : null; };
 async function askAI() {
   const input = $('#aiQuestion'), btn = $('#aiAskBtn'), q = input.value.trim();
   if (!q) return;
@@ -1353,7 +1355,25 @@ async function askAI() {
   input.value = ''; resizeAIQuestion();
   btn.disabled = true;
   const loading = appendAIMessage('bot', 'Analisando a oferta futura…');
-  try { loading.textContent = await callAIProvider(q) || 'Não recebi resposta da IA.'; }
+  try {
+    const messages = [{ role: 'user', content: `${aiUserContext()}\n\nPergunta do usuário: ${q}` }];
+    let answer = 'Não recebi resposta da IA.';
+    for (let round = 0; round < 4; round++) {
+      const out = await callAIProvider(messages);
+      const sql = extractSQL(out);
+      if (!sql || round === 3) { answer = (out || '').replace(/```sql[\s\S]*?```/gi, '').trim() || answer; break; }
+      loading.textContent = 'Consultando o banco de dados…';
+      messages.push({ role: 'assistant', content: out });
+      let feedback;
+      try {
+        const r = await runNeonSQL(sql);
+        feedback = `Resultado da consulta (${r.rowCount} linhas${r.truncated ? ', truncado em 200 — agregue mais' : ''}):\n${JSON.stringify(r.rows).slice(0, 24000)}`;
+      } catch (err) { feedback = 'Erro na consulta: ' + err.message + '\nCorrija o SQL e tente de novo.'; }
+      messages.push({ role: 'user', content: feedback + '\n\nAgora responda ao usuário (ou envie outro bloco ```sql``` se precisar de mais dados).' });
+      loading.textContent = 'Interpretando os dados…';
+    }
+    loading.textContent = answer;
+  }
   catch (err) { console.error(err); loading.textContent = 'Não consegui responder: ' + err.message; }
   finally { btn.disabled = false; input.focus(); }
 }
