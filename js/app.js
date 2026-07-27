@@ -707,8 +707,10 @@ function fillFicha(e) {
   $('#fFontePrev').textContent = e.fontePrevisao || '—';
   const tips = (e.tipologias || []).slice().sort((a, b) => (a.area || 0) - (b.area || 0));
   $('#fTips').innerHTML = tips.map(t => `<tr><td>${escapeHtml(t.tipologia || (t.tratada + 'Q'))}</td><td class="td-num">${fmtInt(t.unids)}</td><td class="td-num">${t.area != null ? fmtDec(t.area, 0) + ' m²' : '—'}</td></tr>`).join('') || '<tr><td colspan="3" style="color:var(--gray-400)">Sem tipologias informadas</td></tr>';
-  $('#fProto').textContent = dateBR(e.dataProtocolo) || '—';
-  $('#fAprov').textContent = dateBR(e.dataAprovacao) || (e.projetoAprovado ? 'Aprovado' : 'Em análise');
+  const proto = dateBR(e.dataProtocolo);
+  $('#fProto').textContent = proto || '—';
+  // sem protocolo não há o que analisar: aprovação fica em branco; com protocolo e sem aprovação = em análise
+  $('#fAprov').textContent = dateBR(e.dataAprovacao) || (!proto ? '—' : e.projetoAprovado ? 'Aprovado' : 'Em análise');
   const el = elapsedLabel(e.dataProtocolo, e.dataAprovacao);
   const elBox = $('#fElapsed');
   if (el) { elBox.hidden = false; elBox.querySelector('span').textContent = 'Tempo decorrido · ' + el; } else elBox.hidden = true;
