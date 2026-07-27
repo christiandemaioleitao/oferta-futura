@@ -35,7 +35,7 @@ from of_common import BASE, load_env, neon_connect, sqlserver_connect, copy_data
 MAPA_TIPOLOGIA = {
     'STUDIO': 1, '1Q': 1, '2Q': 2, '2Q C/1S': 2, '2S': 2,
     '3Q': 3, '3Q C/1S': 3, '3Q C/2S': 3, '3S': 3,
-    '4S': 4, '4Q C/1S': 4, '4Q C/2S': 4, '4Q C/3S': 4,
+    '4S': 4, '4Q C/1S': 4, '4Q C/2S': 4, '4Q C/3S': 4, '>4S': 4,
 }
 
 COLUNAS_ORDEM_FINAL_OF = [
@@ -77,6 +77,7 @@ SELECT
     t.UnidadesTipologia       AS Unids_tipologia,
     t.AreaPrivativa           AS AreaPrivativa,
     t.PerfilTipologia         AS tipologia,
+    t.NumeroQuartos           AS NumeroQuartos,
     ec.AreaTerreno            AS AreaTerreno,
     ec.Adensamento            AS Adensamento,
     ec.MCMV                   AS MCMV,
@@ -261,7 +262,10 @@ def main():
     df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim)].copy()
     print(f'  janela OF: {len(df_of)} tipologias / {df_of["id_empreendimento"].nunique()} empreendimentos')
 
-    df_of['tipologia_tratada'] = df_of['tipologia'].astype(str).str.upper().str.strip().map(MAPA_TIPOLOGIA).fillna(0)
+    # PerfilTipologia NULL (cadastro incompleto) cai pro NumeroQuartos; 0 fica só p/ comercial de verdade
+    quartos = pd.to_numeric(df_of['NumeroQuartos'], errors='coerce').clip(upper=4)
+    df_of['tipologia_tratada'] = (df_of['tipologia'].astype(str).str.upper().str.strip()
+                                  .map(MAPA_TIPOLOGIA).fillna(quartos).fillna(0))
     df_of['cluster'] = [definir_cluster(t, q) for t, q in zip(df_of['TipoEmpreendimento'], df_of['tipologia_tratada'])]
     df_meta = df_of.merge(resumo[['cluster'] + [f'%{i}M' for i in range(1, 19)]], on='cluster', how='left').fillna(0)
 
