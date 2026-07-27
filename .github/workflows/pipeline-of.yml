@@ -16,8 +16,8 @@ on:
         description: "Fator multiplicador da curva"
         default: "1.0"
   schedule:
-    # Todo dia às 06:00 de Brasília (09:00 UTC)
-    - cron: "0 9 * * *"
+    # Todo dia 30 às 06:00 de Brasília (09:00 UTC); fevereiro não tem dia 30 — rodar manualmente se precisar
+    - cron: "0 9 30 * *"
 
 permissions:
   contents: write
