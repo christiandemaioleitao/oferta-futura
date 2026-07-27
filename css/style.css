@@ -80,7 +80,8 @@ button{font-family:inherit}
 .ms__btn:hover{border-color:var(--navy-500)}
 .ms__btn .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ms__btn .caret{flex:none;transition:transform .15s;color:var(--gray-400)}
-.ms.open .ms__btn{border-color:var(--navy-500);outline:2px solid rgba(58,90,160,.25)}
+.ms__btn:focus,.ms__btn:focus-visible{outline:none}
+.ms.open .ms__btn{border-color:var(--navy-500);box-shadow:0 0 0 3px rgba(58,90,160,.16)}
 .ms.open .caret{transform:rotate(180deg)}
 .ms__pop{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:100%;max-width:290px;background:#fff;border:1px solid var(--hair);border-radius:10px;box-shadow:0 22px 48px rgba(12,31,85,.18);display:none;overflow:hidden}
 .ms.open .ms__pop{display:block}

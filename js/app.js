@@ -101,8 +101,10 @@ function buildMultiselect(key, values) {
   list.onchange = e => { const v = e.target.value; e.target.checked ? state[key].add(v) : state[key].delete(v); sync(); applyAll(); };
   ms.querySelector('.ms__all').onclick = e => {
     const a = e.target.dataset.a; if (!a) return;
-    state[key].clear();
-    if (a === 'all') values.forEach(v => state[key].add(v.id));
+    const q = textKey(ms.querySelector('.ms__search').value);
+    // SELECIONAR TUDO respeita a busca: adiciona só os itens visíveis, sem perder os já marcados
+    if (a === 'all') values.filter(v => !q || textKey(v.label).includes(q)).forEach(v => state[key].add(v.id));
+    else state[key].clear();
     render(ms.querySelector('.ms__search').value); sync(); applyAll();
   };
   MS[key] = { sync, render };
@@ -265,15 +267,36 @@ function initMap() {
   };
   renderKmzLayers();
 }
-function renderBairros() {
+/* nomes de bairro: dados usam "SETOR SUL"/"JARDIM GOIAS", KMZ usa "SUL"/"GOIAS" — normaliza os dois lados */
+const BAIRRO_STOP = /^(SETOR|SET|JARDIM|JD|VILA|VL|PARQUE|PQ|RESIDENCIAL|RES|CONJUNTO|CONJ|CHACARA|CHACARAS|BAIRRO|FAZENDA|FAZ|LOTEAMENTO|LOT|CIDADE|DA|DO|DAS|DOS|DE)\s+/;
+function bairroKey(s) { let k = textKey(s); let p; do { p = k; k = k.replace(BAIRRO_STOP, ''); } while (k !== p && k); return k || textKey(s); }
+let bairroRenderer = null;
+function renderBairros(keys) {
+  bairroLayer.clearLayers();
   const B = window.OF_BAIRROS || { features: [] };
   if (!B.features.length) { $('#lyrBairros')?.closest('label')?.remove(); return; }
-  const renderer = L.canvas({ pane: 'bairros' }); // canvas: 1149 polígonos sem pesar o SVG
+  const renderer = bairroRenderer = bairroRenderer || L.canvas({ pane: 'bairros' }); // canvas único: 1149 polígonos sem pesar o SVG nem acumular canvases
   B.features.forEach(f => {
+    if (keys && !keys.has(bairroKey(f.name))) return;
     L.polygon(f.coords, { pane: 'bairros', renderer, color: f.color, weight: 1.1, opacity: .75, fillColor: f.color, fillOpacity: .28 })
       .bindTooltip(f.name, { sticky: true, direction: 'top', className: 'bairro-tip' })
       .addTo(bairroLayer);
   });
+}
+let lastBairroFilterKey = null;
+function updateBairroLayer() {
+  if (!map) return;
+  const key = [...state.bairro].sort().join('|');
+  if (key === lastBairroFilterKey) return;
+  lastBairroFilterKey = key;
+  if (state.bairro.size) {
+    renderBairros(new Set([...state.bairro].map(bairroKey)));
+    const chk = $('#lyrBairros');
+    if (chk) chk.checked = true;
+    if (!map.hasLayer(bairroLayer)) map.addLayer(bairroLayer);
+  } else {
+    renderBairros();
+  }
 }
 function renderKmzLayers() {
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
@@ -297,6 +320,7 @@ function renderKmzLayers() {
 }
 function renderMap() {
   if (!map) return;
+  updateBairroLayer();
   renderKmzLayers();
   empLayer.clearLayers();
   const pts = [];
@@ -319,6 +343,30 @@ let chartDisp, chartLanc;
 Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 Chart.defaults.font.size = 10;
 Chart.defaults.color = GRAY;
+/* rótulos de dados (liga/desliga no dock de configurações) */
+let showDataLabels = localStorage.getItem('ofDashboardDataLabels') === '1';
+const dataLabelsPlugin = {
+  id: 'ofDataLabels',
+  afterDatasetsDraw(chart) {
+    if (!showDataLabels) return;
+    const ctx = chart.ctx, n = chart.data.labels.length;
+    const step = Math.max(1, Math.ceil(n / 24)); // pula rótulos quando há muitos pontos
+    ctx.save();
+    ctx.font = "600 9px 'IBM Plex Mono', monospace";
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((el, i) => {
+        if (i % step) return;
+        const v = ds.data[i];
+        if (v == null || !el) return;
+        ctx.fillStyle = NAVY;
+        ctx.fillText(fmtInt(v), el.x, el.y - 4);
+      });
+    });
+    ctx.restore();
+  }
+};
 function monthlySeries(emps) {
   const acc = {};
   emps.forEach(e => (e.mensal || []).forEach(x => { acc[x.m] = (acc[x.m] || 0) + x.disp; }));
@@ -362,6 +410,7 @@ function renderCharts() {
       pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
       pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
     }]},
+    plugins: [dataLabelsPlugin],
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : '') } } },
       scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
   });
@@ -371,6 +420,7 @@ function renderCharts() {
   chartLanc = new Chart($('#chartLanc'), {
     type: 'bar',
     data: { labels: lserie.map(x => periodLabelOF(x[0], lancMode)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
+    plugins: [dataLabelsPlugin],
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + fmtInt(c.parsed.y) + (lancMode === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas') } } },
       scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
   });
@@ -1229,6 +1279,15 @@ function initSettingsPanel() {
   setEditLock(localStorage.getItem('ofDashboardEditsLocked') === '1');
   const lock = $('#editLockBtn');
   if (lock) lock.onchange = () => setEditLock(lock.checked);
+  const labels = $('#dataLabelsBtn');
+  if (labels) {
+    labels.checked = showDataLabels;
+    labels.onchange = () => {
+      showDataLabels = labels.checked;
+      localStorage.setItem('ofDashboardDataLabels', showDataLabels ? '1' : '0');
+      renderCharts();
+    };
+  }
 }
 
 /* ---------- init ---------- */
