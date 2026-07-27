@@ -28,11 +28,14 @@ api/sql.js                 função serverless: consulta somente-leitura ao Neon
 data/dados_of.js           window.OF_DATA   — empreendimentos + tipologias + série mensal
 data/mapa_of.js            window.OF_MAPA   — GeoJSON dos terrenos/pontos do KMZ
 data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já coloridos
+data/plano_diretor.js      índice das 22 camadas do Plano Diretor (leve)
+data/plano_diretor/        uma camada por arquivo, baixada só quando ligada
 scripts/pipeline_of.py     pipeline: SQL Server + Neon → projeção → Neon + data/
 scripts/preprocess.py      monta data/dados_of.js e data/mapa_of.js
 scripts/of_common.py       conexões e utilitários compartilhados
 scripts/upload_sintese.py  sobe a planilha da síntese para o Neon (uso pontual)
 scripts/gen_bairros.py     converte o KMZ de bairros em data/bairros_of.js (sob demanda)
+scripts/gen_plano_diretor.py  converte o KMZ do Plano Diretor em data/plano_diretor/ (sob demanda)
 fontes/                    arquivos originais (KMZ, xlsx, pbix, referências de design)
 .github/workflows/pipeline-of.yml   execução mensal e manual do pipeline
 ```
@@ -188,13 +191,35 @@ A reserva do passo 1 é o que impede um terreno sem cadastro de roubar a ficha d
 
 Geometria que não casa com ninguém aparece sem ficha — melhor que ficha errada.
 
-### 10. Médias de venda do mercado
+### 10. Plano Diretor: 36 MB que não podem chegar ao navegador
+
+O KMZ do Plano Diretor de Goiânia 2022 tem 36 MB de KML e 880 mil vértices. `gen_plano_diretor.py` simplifica cada geometria (Douglas-Peucker, tolerância de ~5,5 m) e arredonda as coordenadas a 5 casas: **130 mil vértices, 86% menor**, imperceptível na escala do mapa.
+
+Cada uma das 22 pastas do KMZ vira um arquivo em `data/plano_diretor/`. A página carrega só o índice; a geometria de uma camada é baixada quando o usuário a liga e fica em cache na memória. Todas desligadas por padrão.
+
+O nome do arquivo é truncado **pelo fim**, não pelo início: quatro pastas começam com "Programas Especiais / Áreas de Programas Especiais de …" e cortar pelo começo fazia as quatro colidirem no mesmo arquivo — as camadas existiam no painel mas mostravam todas a mesma geometria.
+
+### 11. Quebras do modo Detalhado precisam fechar com o total
+
+Os gráficos podem ser quebrados por tipologia (1Q–4Q e comercial) ou por faixa de m². As duas quebras são gravadas pelo pipeline em cada mês (`tip` e `fx`), não rateadas no navegador.
+
+Faixa de m² tem o balde **`f0` — "sem área informada"**. Sem ele, as tipologias sem `AreaPrivativa` sumiam do gráfico e a soma das faixas ficava 434 unidades abaixo do total. Vale a mesma regra da tipologia: um balde para o desconhecido é melhor que descartar a linha.
+
+### 12. O filtro de período recorta o eixo do tempo
+
+Com Jan–Jun/26 selecionado, os gráficos mostram só esses 6 meses — e não os 18 meses de projeção de cada produto lançado na janela. O filtro define a janela de análise inteira, não só quais empreendimentos entram.
+
+### 13. "Lançado" é medido contra o início do filtro
+
+Na tabela por incorporadora, um empreendimento conta como lançado quando `dtLancamento <= início do período filtrado`. Sem filtro de período, a régua é o mês de referência (mês atual). Isso mantém a leitura estável: ao analisar 2027, o que foi lançado em 2026 já é passado.
+
+### 14. Médias de venda do mercado
 
 - **Média mensal:** entre os projetos históricos dos mesmos *clusters* dos empreendimentos filtrados, `unidades vendidas ÷ meses de comercialização`.
 - **Média deflacionada:** mesma conta ignorando os 3 primeiros meses após o lançamento (tira o pico).
 - **Clusters:** `apart-map-1Q` a `apart-map-4Qmaior` (por nº de quartos), `apart-eco`, `outros`. É o cluster que liga um empreendimento novo à curva de venda do mercado.
 
-### 11. Ponto vermelho e LTM
+### 15. Ponto vermelho e LTM
 
 O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `PontoMesReferencia` do BI. No modo LTM, cada ponto é a soma móvel dos 12 meses anteriores.
 
@@ -207,10 +232,14 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Filtros** | Período, bairro, incorporadora, tipo, tipologia, macrozona e faixa de m² (multi-seleção com busca; "selecionar todos" respeita a busca). Tudo recalcula em tempo real. |
 | **Mapa** | Leaflet com empreendimentos (EBM em azul, demais em vermelho), terrenos e localizações do KMZ, bairros coloridos e camada de satélite. Com filtro ativo, só aparecem as geometrias dos empreendimentos filtrados. |
 | **Sem previsão** | Checkbox que traz do Neon os terrenos monitorados **sem data de lançamento**: marcadores cinza, linhas no radar e ficha completa. |
-| **Gráficos** | Oferta disponível por mês e lançamentos por mês (Mês/Tri/Ano/LTM). O botão **Detalhado** quebra os dois por nº de quartos (1Q–4Q e comercial); a tooltip lista os empreendimentos do período com suas unidades. |
+| **Gráficos** | Oferta disponível por mês e lançamentos por mês (Mês/Tri/Ano/LTM), recortados pelo período filtrado. O botão **Detalhado** abre duas quebras: **Tipologias** (1Q–4Q e comercial) ou **Faixa de m²**; a tooltip lista os empreendimentos do período com suas unidades. |
+| **Plano Diretor** | Painel com as 22 camadas do Plano Diretor de Goiânia 2022, agrupadas em Estrutura, Densidade, Ambiental e Programas. Desligadas por padrão; dá para ligar uma, um grupo inteiro ou todas. Cada camada só é baixada quando ligada. |
+| **Expandir** | Todo painel tem botão de expandir para tela cheia (estilo Power BI). `ESC` restaura. |
+| **Por incorporadora** | Projetos, unidades, quantos em protocolo, aprovados e lançados, além do tempo de aprovação (mediana e média) com o tamanho da amostra. |
+| **Concentração** | Onde a oferta se acumula, por bairro ou macrozona: empreendimentos, unidades, participação, incorporadoras distintas e m² médio. |
 | **Radar** | Tabela com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
 | **Ficha** | Origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
-| **Exportar** | PDF (relatório), PDF Apresentação (deck por macrozona/faixa/segmento), Excel (5 abas) e KMZ — todos respeitando os filtros. |
+| **Exportar** | PDF (relatório), PDF Apresentação (deck por macrozona, faixa, segmento e **terrenos sem previsão de lançamento**), Excel (5 abas) e KMZ — todos respeitando os filtros. |
 | **Importar** | Excel no esquema da master e KMZ/KML do Google Earth, reconstruindo o dashboard no navegador. |
 | **Chat de IA** | Consulta o Neon: o modelo escreve o SQL, o dashboard executa via `/api/sql` e devolve as linhas (até 3 consultas encadeadas). Suporta OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq, Together e OpenRouter, com campo para digitar qualquer id de modelo. |
 | **Edição ✎** | Títulos e textos editáveis (senha `123`), persistidos no `localStorage`. O dock de configurações liga/desliga os lápis e os rótulos dos gráficos. |

@@ -25,6 +25,21 @@ KMZ_PADRAO = os.path.join(FONTES, 'Oferta Futura - 2026.kmz')
 NS = {'k': 'http://www.opengis.net/kml/2.2'}
 KML = '{http://www.opengis.net/kml/2.2}'
 
+# faixas de área privativa — precisam bater com FAIXAS em js/app.js
+FAIXAS = [('f1', 0, 50), ('f2', 50, 70), ('f3', 70, 90),
+          ('f4', 90, 120), ('f5', 120, 160), ('f6', 160, float('inf'))]
+
+
+def faixa_de(area):
+    """Devolve a faixa da área privativa. 'f0' = área não informada — precisa existir,
+    senão essas unidades somem do gráfico e a quebra não fecha com o total."""
+    if area is None:
+        return 'f0'
+    for fid, ini, fim in FAIXAS:
+        if ini <= area < fim:
+            return fid
+    return 'f0'
+
 
 def _nan(v):
     return isinstance(v, float) and v != v
@@ -70,7 +85,8 @@ def gerar_dados(header, linhas, fonte):
     idx = {h: i for i, h in enumerate(header)}
     emps = {}                                   # id_empreendimento -> dict
     tips = {}                                   # (emp, id_tipologia) -> dict
-    mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, defaultdict(float)]))
+    # emp -> mês -> [disp, vend, distr, {quartos: disp}, {faixa m²: disp}]
+    mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, defaultdict(float), defaultdict(float)]))
     hist = {}                                   # empreendimento de mercado -> dict
     n = 0
 
@@ -158,12 +174,13 @@ def gerar_dados(header, linhas, fonte):
             cel[0] += disp
             cel[1] += num(g('unidadesvendidasmes')) or 0
             cel[2] += num(g('unidadesdistratadasmes')) or 0
-            # quebra por nº de quartos (0 = comercial) p/ a visão detalhada dos gráficos
+            # quebras da visão Detalhado: por nº de quartos (0 = comercial) e por faixa de m²
             try:
                 tq = min(max(int(float(g('tipologia_tratada') or 0)), 0), 4)
             except (TypeError, ValueError):
                 tq = 0
             cel[3][str(tq)] += disp
+            cel[4][faixa_de(num(g('AreaPrivativa')))] += disp
 
     print('linhas:', n, '| empreendimentos:', len(emps), '| tipologias:', len(tips))
 
@@ -173,7 +190,8 @@ def gerar_dados(header, linhas, fonte):
     for eid, mm in mensal.items():
         emps[eid]['mensal'] = [
             {'m': m, 'disp': round(v[0], 1), 'vend': round(v[1], 2), 'distr': round(v[2], 2),
-             'tip': {k: round(x, 1) for k, x in sorted(v[3].items()) if x}}
+             'tip': {k: round(x, 1) for k, x in sorted(v[3].items()) if x},
+             'fx': {k: round(x, 1) for k, x in sorted(v[4].items()) if x}}
             for m, v in sorted(mm.items())
         ]
 

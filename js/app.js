@@ -168,6 +168,7 @@ function applyAll() {
   filtered = DATA.empreendimentos.filter(empMatches);
   $('#filtersSummary').textContent = filtersSummaryText();
   renderKPIs(); renderMap(); renderCharts(); renderPivot(); renderRadar();
+  renderIncorporadoras(); renderConcentracao();
 }
 
 function launchWindowLabel(emps) {
@@ -185,7 +186,6 @@ function renderKPIs() {
   $('#kpiHeaderWindow').textContent = launchWindowLabel(filtered);
   $('#kpiCount').textContent = filtered.length;
   $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0));
-  $('#kpiLand').textContent = fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0));
   const m = salesAverages(filtered);
   $('#kpiAvgSales').textContent = m.avg == null ? '—' : fmtDec(m.avg, 1);
   $('#kpiAvgSalesDefl').textContent = m.defl == null ? '—' : fmtDec(m.defl, 1);
@@ -302,6 +302,8 @@ function initMap() {
   satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
   });
+  map.createPane('planoDiretor');
+  map.getPane('planoDiretor').style.zIndex = 370; // abaixo dos bairros e dos marcadores
   map.createPane('bairros');
   map.getPane('bairros').style.zIndex = 380; // abaixo do overlayPane (400): bairros nunca cobrem marcadores
   empLayer = L.layerGroup().addTo(map);
@@ -445,41 +447,60 @@ const dataLabelsPlugin = {
     ctx.restore();
   }
 };
+/* o filtro de período recorta também o eixo do tempo: com Jan–Jun/26 selecionado,
+   os gráficos mostram só esses meses, e não os 18 meses de projeção de cada produto */
+const noPeriodo = m => (!state.from || m >= state.from) && (!state.to || m <= state.to);
 function monthlySeries(emps) {
   const acc = {};
-  emps.forEach(e => (e.mensal || []).forEach(x => { acc[x.m] = (acc[x.m] || 0) + x.disp; }));
+  emps.forEach(e => (e.mensal || []).forEach(x => { if (noPeriodo(x.m)) acc[x.m] = (acc[x.m] || 0) + x.disp; }));
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
 function launchSeries(emps) {
   const acc = {};
-  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) acc[m] = (acc[m] || 0) + (e.totalUnidades || 0); });
+  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m && noPeriodo(m)) acc[m] = (acc[m] || 0) + (e.totalUnidades || 0); });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
-/* visão detalhada: quebra por nº de quartos (0 = comercial) */
-let detalhado = false;
+/* visão Detalhado: quebra por nº de quartos (0 = comercial) ou por faixa de m² */
+let detalhado = false, detMode = 'tip';
 const TIP_KEYS = ['1', '2', '3', '4', '0'];
 const TIP_LABELS = { '0': 'COMERCIAL', '1': '1Q', '2': '2Q', '3': '3Q', '4': '4Q+' };
 const TIP_COLORS = { '1': '#9DB2D9', '2': '#5B79B4', '3': '#3A5AA0', '4': '#0C1F55', '0': '#C8102E' };
+const FAIXA_COLORS = { f1: '#C3D0E8', f2: '#9DB2D9', f3: '#6E8CC4', f4: '#3A5AA0', f5: '#1B336E', f6: '#0C1F55', f0: '#98A2B3' };
 const tipKeyOf = t => { const n = Number(t != null && t.tratada != null ? t.tratada : t); return Number.isFinite(n) && n > 0 ? String(Math.min(Math.round(n), 4)) : '0'; };
-function monthlySeriesTip(emps) { // meses ordenados + série disp por tipologia
-  const acc = {}; // m -> {tip: disp}
+/* 'f0' = área privativa não informada; sem esse balde a quebra por faixa não fecha com o total */
+const faixaKeyOf = t => { const a = t && t.area; if (a == null) return 'f0'; const f = FAIXAS.find(f => a >= f.min && a < f.max); return f ? f.id : 'f0'; };
+/* configuração da quebra ativa — o pipeline grava as duas em cada mês (campos tip e fx) */
+function quebra() {
+  return detMode === 'faixa'
+    ? { keys: [...FAIXAS.map(f => f.id), 'f0'],
+        labels: { ...Object.fromEntries(FAIXAS.map(f => [f.id, f.label.toUpperCase()])), f0: 'SEM ÁREA INFORMADA' },
+        colors: FAIXA_COLORS, campo: 'fx', keyOf: faixaKeyOf }
+    : { keys: TIP_KEYS, labels: TIP_LABELS, colors: TIP_COLORS, campo: 'tip', keyOf: tipKeyOf };
+}
+function monthlySeriesTip(emps) { // meses ordenados + série de disponíveis por chave da quebra
+  const q = quebra(), acc = {};
   emps.forEach(e => (e.mensal || []).forEach(x => {
+    if (!noPeriodo(x.m)) return;
     const cel = acc[x.m] = acc[x.m] || {};
-    if (x.tip && Object.keys(x.tip).length) {
-      Object.entries(x.tip).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
-    } else if (x.disp) { // dados antigos sem quebra: rateia pela participação das tipologias
+    const dados = x[q.campo];
+    if (dados && Object.keys(dados).length) {
+      Object.entries(dados).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
+    } else if (x.disp) { // sem quebra gravada: rateia pela participação das tipologias
       const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
-      (e.tipologias || []).forEach(t => { const k = tipKeyOf(t); cel[k] = (cel[k] || 0) + x.disp * (tot ? (t.unids || 0) / tot : 0); });
+      (e.tipologias || []).forEach(t => {
+        const k = q.keyOf(t); if (!k) return;
+        cel[k] = (cel[k] || 0) + x.disp * (tot ? (t.unids || 0) / tot : 0);
+      });
     }
   }));
   const months = Object.keys(acc).sort();
-  return { months, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, months.map(m => acc[m][k] || 0)])) };
+  return { months, byTip: Object.fromEntries(q.keys.map(k => [k, months.map(m => acc[m][k] || 0)])) };
 }
-function launchUnitsByTip(e) { // unidades lançadas do empreendimento por tipologia
-  const out = {};
+function launchUnitsByTip(e) { // unidades lançadas do empreendimento pela quebra ativa
+  const q = quebra(), out = {};
   const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
-  if (tot) (e.tipologias || []).forEach(t => { const k = tipKeyOf(t); out[k] = (out[k] || 0) + (t.unids || 0); });
-  else if (e.totalUnidades) out['0'] = e.totalUnidades;
+  if (tot) (e.tipologias || []).forEach(t => { const k = q.keyOf(t); if (k) out[k] = (out[k] || 0) + (t.unids || 0); });
+  else if (e.totalUnidades && detMode === 'tip') out['0'] = e.totalUnidades;
   return out;
 }
 /* modos do gráfico de lançamentos: mês, trimestre, ano, LTM (regras do dashboard leadsebm) */
@@ -500,21 +521,22 @@ function launchSeriesByMode(emps, mode) {
 }
 const ymIdx = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
 function launchSeriesTipByMode(emps, mode) {
-  const acc = {}; // 'YYYY-MM' -> {tip: unidades}
+  const chaves = quebra().keys;
+  const acc = {}; // 'YYYY-MM' -> {chave: unidades}
   emps.forEach(e => {
-    const m = (e.dtLancamento || '').slice(0, 7); if (!m) return;
+    const m = (e.dtLancamento || '').slice(0, 7); if (!m || !noPeriodo(m)) return;
     const cel = acc[m] = acc[m] || {};
     Object.entries(launchUnitsByTip(e)).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
   });
   const months = Object.keys(acc).sort();
   if (mode === 'ltm') {
     const map = new Map(months.map(m => [ymIdx(m), acc[m]]));
-    return { keys: months, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, months.map(m => { const i = ymIdx(m); let s = 0; for (let j = i - 11; j <= i; j++) s += (map.get(j) || {})[k] || 0; return s; })])) };
+    return { keys: months, byTip: Object.fromEntries(chaves.map(k => [k, months.map(m => { const i = ymIdx(m); let s = 0; for (let j = i - 11; j <= i; j++) s += (map.get(j) || {})[k] || 0; return s; })])) };
   }
   const pacc = {};
   months.forEach(m => { const pk = periodKeyOF(m, mode); const cel = pacc[pk] = pacc[pk] || {}; Object.entries(acc[m]).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; }); });
   const keys = Object.keys(pacc).sort();
-  return { keys, byTip: Object.fromEntries(TIP_KEYS.map(k => [k, keys.map(pk => pacc[pk][k] || 0)])) };
+  return { keys, byTip: Object.fromEntries(chaves.map(k => [k, keys.map(pk => pacc[pk][k] || 0)])) };
 }
 /* listas de empreendimentos p/ tooltip */
 const TT_MAX = 12;
@@ -548,10 +570,11 @@ function renderCharts() {
   if (detalhado) {
     const { months, byTip } = monthlySeriesTip(filtered);
     const refIdx = months.indexOf(ref);
-    const dsets = TIP_KEYS.filter(k => byTip[k].some(v => v > 0)).map(k => ({
-      label: TIP_LABELS[k], data: byTip[k].map(v => Math.round(v)),
-      borderColor: TIP_COLORS[k], backgroundColor: TIP_COLORS[k], fill: false, tension: .3, borderWidth: 2,
-      pointRadius: months.map((m, i) => i === refIdx ? 4 : 2), pointBackgroundColor: TIP_COLORS[k],
+    const q = quebra();
+    const dsets = q.keys.filter(k => byTip[k].some(v => v > 0)).map(k => ({
+      label: q.labels[k], data: byTip[k].map(v => Math.round(v)),
+      borderColor: q.colors[k], backgroundColor: q.colors[k], fill: false, tension: .3, borderWidth: 2,
+      pointRadius: months.map((m, i) => i === refIdx ? 4 : 2), pointBackgroundColor: q.colors[k],
     }));
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
@@ -588,9 +611,10 @@ function renderCharts() {
   if (chartLanc) chartLanc.destroy();
   if (detalhado) {
     const { keys, byTip } = launchSeriesTipByMode(filtered, lancMode);
-    const dsets = TIP_KEYS.filter(k => byTip[k].some(v => v > 0)).map(k => ({
-      label: TIP_LABELS[k], data: byTip[k].map(v => Math.round(v)),
-      backgroundColor: TIP_COLORS[k], borderRadius: 2, maxBarThickness: 26,
+    const q = quebra();
+    const dsets = q.keys.filter(k => byTip[k].some(v => v > 0)).map(k => ({
+      label: q.labels[k], data: byTip[k].map(v => Math.round(v)),
+      backgroundColor: q.colors[k], borderRadius: 2, maxBarThickness: 26,
     }));
     chartLanc = new Chart($('#chartLanc'), {
       type: 'bar',
@@ -740,6 +764,7 @@ $('#fClose').onclick = fecharFicha;
 let fecharDock = () => {};
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
+  if (cardExpandido) { alternarExpansao(cardExpandido, cardExpandido.__btn); return; }
   fecharFicha(); setAIChatOpen(false); fecharDock();
 });
 
@@ -1074,16 +1099,33 @@ async function captureMapFor(emps, W = 1560, H = 900) {
 async function decodeStageImages(stage) {
   await Promise.all([...stage.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
 }
-function deckKpisHtml(emps) {
+function deckKpisHtml(emps, semPrevisao) {
+  const areaTot = fmtInt(emps.reduce((s, e) => s + (e.areaTerreno || 0), 0));
+  if (semPrevisao) {  // sem data e sem tipologia: o que se sabe é terreno e incorporadora
+    const comUnid = emps.filter(e => e.totalUnidades);
+    return `<div class="pdf-kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="k"><span>TERRENOS MONITORADOS</span><b>${emps.length}</b></div>
+      <div class="k"><span>ÁREA DE TERRENO M²</span><b>${areaTot}</b></div>
+      <div class="k"><span>INCORPORADORAS</span><b>${new Set(emps.map(e => e.incorporadora).filter(Boolean)).size}</b></div>
+      <div class="k accent"><span>COM ESTIMATIVA DE UNIDS</span><b>${comUnid.length}</b></div>
+    </div>`;
+  }
   const m = salesAverages(emps);
   return `<div class="pdf-kpis" style="grid-template-columns:repeat(4,1fr)">
     <div class="k"><span>EMPREENDIMENTOS</span><b>${emps.length}</b></div>
     <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(emps.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
-    <div class="k"><span>ÁREA DE TERRENO M²</span><b>${fmtInt(emps.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></div>
+    <div class="k"><span>ÁREA DE TERRENO M²</span><b>${areaTot}</b></div>
     <div class="k accent"><span>MÉDIA MENSAL VENDAS</span><b>${m.avg == null ? '—' : fmtDec(m.avg, 1)}</b></div>
   </div>`;
 }
-function deckTableHtml(emps, max = 11) {
+function deckTableHtml(emps, max = 11, semPrevisao) {
+  if (semPrevisao) {
+    const rows = [...emps].sort((a, b) => (b.areaTerreno || 0) - (a.areaTerreno || 0));
+    const shown = rows.slice(0, max);
+    return `<table class="pdf-table"><thead><tr><th>TERRENO</th><th>INCORPORADORA</th><th>BAIRRO</th><th>ENDEREÇO</th><th class="r">M² TERRENO</th><th class="r">UNIDS EST.</th><th>PROJETO</th></tr></thead>
+      <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td>${escapeHtml((e.logradouro || '—').slice(0, 40))}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${e.totalUnidades ? fmtInt(e.totalUnidades) : '—'}</td><td>${e.projetoAprovado ? 'APROVADO' : e.projetoProtocolado ? 'PROTOCOLADO' : '—'}</td></tr>`).join('')}</tbody></table>
+      ${rows.length > max ? `<p class="mono" style="font-size:9.5px;color:${GRAY};margin-top:8px">+ ${rows.length - max} terreno(s) — lista completa no dashboard.</p>` : ''}`;
+  }
   const rows = [...emps].sort((a, b) => (a.dtLancamento || '').localeCompare(b.dtLancamento || ''));
   const shown = rows.slice(0, max);
   return `<table class="pdf-table"><thead><tr><th>EMPREENDIMENTO</th><th>LANÇAMENTO</th><th>INCORPORADORA</th><th>BAIRRO</th><th class="r">M² TERRENO</th><th class="r">TOTAL UNIDS</th><th>STATUS</th></tr></thead>
@@ -1122,6 +1164,25 @@ async function exportDeck() {
       scope: filtered,
       cuts: tipos.map(t => ({ title: t, sub: 'Segmento', emps: filtered.filter(e => (e.tipo || '—') === t) })).filter(c => c.emps.length),
     });
+    // terrenos monitorados sem data: entram na apresentação mesmo sem tipologia/lançamento
+    status.textContent = 'BUSCANDO TERRENOS SEM PREVISÃO…';
+    let semPrev = [];
+    try { semPrev = await loadSemDataEmps(); }
+    catch (err) { console.warn('terrenos sem previsão indisponíveis', err); }
+    if (semPrev.length) {
+      const porBairro = {};
+      semPrev.forEach(e => (porBairro[e.bairro || '—'] = porBairro[e.bairro || '—'] || []).push(e));
+      const ordenados = Object.entries(porBairro).sort((a, b) => b[1].length - a[1].length);
+      const TOP = 8;  // sem isso seriam dezenas de slides, um por bairro
+      const cuts = ordenados.slice(0, TOP).map(([b, emps]) => ({ title: b, sub: 'Bairro · sem previsão', emps, semPrevisao: true }));
+      const resto = ordenados.slice(TOP).flatMap(([, emps]) => emps);
+      if (resto.length) cuts.push({ title: 'Demais bairros', sub: `${ordenados.length - TOP} bairros · sem previsão`, emps: resto, semPrevisao: true });
+      blocks.push({
+        num: '04', title: 'Terrenos sem previsão de lançamento',
+        desc: 'Terrenos monitorados sem data de lançamento ou previsão definida',
+        scope: semPrev, semPrevisao: true, cuts,
+      });
+    }
     // ---- capa ----
     const cover = document.createElement('div');
     cover.className = 'pdf-page pdf-cover';
@@ -1158,8 +1219,8 @@ async function exportDeck() {
         const s = document.createElement('div');
         s.className = 'pdf-page';
         s.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(c.title)}<small style="display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;letter-spacing:.14em;color:${GRAY};margin-top:6px">${escapeHtml(c.sub.toUpperCase())} · PERÍODO ${escapeHtml(periodo).toUpperCase()}</small></h2></div>
-          ${deckKpisHtml(c.emps)}
-          ${deckTableHtml(c.emps)}
+          ${deckKpisHtml(c.emps, c.semPrevisao)}
+          ${deckTableHtml(c.emps, 11, c.semPrevisao)}
           ${deckFoot(pageNo, periodo)}`;
         stage.appendChild(s);
       }
@@ -1486,6 +1547,266 @@ function initAIChat() {
   resizeAIQuestion();
 }
 
+/* ============================================================
+   Plano Diretor de Goiânia 2022 — camadas sob demanda
+   O KMZ original tem 36 MB; cada camada virou um arquivo próprio, baixado
+   só quando o usuário a liga e mantido em cache na memória depois disso.
+   ============================================================ */
+const PD = window.OF_PLANO_DIRETOR || { base: '', camadas: [] };
+const pdCache = {};                 // id -> formas já baixadas
+const pdAtivas = new Map();         // id -> L.LayerGroup no mapa
+let pdRenderer = null;
+
+async function pdCarregar(cam) {
+  if (pdCache[cam.id]) return pdCache[cam.id];
+  const res = await fetch(`${PD.base}${cam.arq}?v=20260727e`);
+  if (!res.ok) throw new Error(`falha ao baixar ${cam.nome} (${res.status})`);
+  const dados = await res.json();
+  pdCache[cam.id] = dados.formas || [];
+  return pdCache[cam.id];
+}
+function pdDesenhar(cam, formas) {
+  pdRenderer = pdRenderer || L.canvas({ pane: 'planoDiretor' });
+  const grupo = L.layerGroup();
+  formas.forEach(f => {
+    const comum = { pane: 'planoDiretor', renderer: pdRenderer, color: cam.cor, weight: f.t ? 1 : 2.2, opacity: .9 };
+    const geo = f.t
+      ? L.polygon(f.p, { ...comum, fillColor: cam.cor, fillOpacity: .2 })
+      : L.polyline(f.p, comum);
+    geo.bindTooltip(`${f.n || cam.nome}<br><span class="mono" style="font-size:10px;opacity:.75">${cam.nome}</span>`,
+      { sticky: true, className: 'bairro-tip' });
+    geo.addTo(grupo);
+  });
+  grupo.addTo(map);
+  pdAtivas.set(cam.id, grupo);
+}
+function pdStatus() {
+  const el = $('#pdStatus'); if (!el) return;
+  const n = pdAtivas.size;
+  const formas = [...pdAtivas.keys()].reduce((s, id) => s + (pdCache[id] || []).length, 0);
+  el.textContent = n ? `${n} camada${n > 1 ? 's' : ''} ativa${n > 1 ? 's' : ''} · ${fmtInt(formas)} geometrias` : 'nenhuma camada ativa';
+}
+async function pdAlternar(cam, ligar, item) {
+  if (ligar) {
+    if (pdAtivas.has(cam.id)) return;
+    item?.classList.add('loading');
+    try { pdDesenhar(cam, await pdCarregar(cam)); }
+    catch (err) { console.error(err); alert(err.message); const c = item?.querySelector('input'); if (c) c.checked = false; }
+    finally { item?.classList.remove('loading'); }
+  } else {
+    const g = pdAtivas.get(cam.id);
+    if (g) { map.removeLayer(g); pdAtivas.delete(cam.id); }
+  }
+  pdStatus();
+}
+function initPlanoDiretor() {
+  const painel = $('#pdPanel'), botao = $('#pdToggle'), grupos = $('#pdGroups');
+  if (!painel || !botao || !PD.camadas.length) { botao?.remove(); painel?.remove(); return; }
+  botao.onclick = () => {
+    const aberto = painel.hidden;
+    painel.hidden = !aberto;
+    botao.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+  };
+  const porGrupo = {};
+  PD.camadas.forEach(c => (porGrupo[c.grupo] = porGrupo[c.grupo] || []).push(c));
+  grupos.innerHTML = Object.entries(porGrupo).map(([g, cams]) => `
+    <div class="pd-group" data-g="${escapeHtml(g)}">
+      <div class="pd-group__head"><b>${escapeHtml(g.toUpperCase())}</b><button type="button" data-all="${escapeHtml(g)}">TODAS</button></div>
+      ${cams.map(c => `<label class="pd-item" data-id="${c.id}" title="${escapeHtml(c.nome)} · ${c.formas} geometrias · ${c.kb} KB">
+        <input type="checkbox" /><i style="background:${c.cor}"></i><span>${escapeHtml(c.nome)}</span></label>`).join('')}
+    </div>`).join('');
+  const porId = Object.fromEntries(PD.camadas.map(c => [c.id, c]));
+  $$('#pdGroups .pd-item').forEach(item => {
+    const cam = porId[item.dataset.id];
+    item.querySelector('input').onchange = e => pdAlternar(cam, e.target.checked, item);
+  });
+  $$('#pdGroups [data-all]').forEach(btn => btn.onclick = () => {
+    const itens = $$(`.pd-group[data-g="${CSS.escape(btn.dataset.all)}"] .pd-item`);
+    const ligarTodas = itens.some(i => !i.querySelector('input').checked);
+    itens.forEach(i => { const c = i.querySelector('input'); if (c.checked !== ligarTodas) { c.checked = ligarTodas; pdAlternar(porId[i.dataset.id], ligarTodas, i); } });
+  });
+  $('#pdClear').onclick = () => {
+    $$('#pdGroups .pd-item').forEach(i => {
+      const c = i.querySelector('input');
+      if (c.checked) { c.checked = false; pdAlternar(porId[i.dataset.id], false, i); }
+    });
+  };
+}
+
+/* ---------- expandir card (estilo Power BI) ---------- */
+const EXPAND_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const COLAPSE_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M3 9h6V3M21 15h-6v6M10 10 3 3M14 14l7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+let cardExpandido = null;
+function recalcularVisuais() {
+  [chartDisp, chartLanc].forEach(c => { try { c && c.resize(); } catch (e) { /* gráfico ainda não criado */ } });
+  if (map) setTimeout(() => map.invalidateSize(), 60);
+}
+function alternarExpansao(card, btn) {
+  const abrindo = cardExpandido !== card;
+  if (cardExpandido) {
+    cardExpandido.classList.remove('card-expanded');
+    cardExpandido.__btn.innerHTML = EXPAND_SVG;
+    cardExpandido.__btn.title = 'Expandir';
+    cardExpandido = null;
+    $('.expand-back')?.remove();
+    document.body.classList.remove('has-expanded');
+  }
+  if (abrindo) {
+    const fundo = document.createElement('div');
+    fundo.className = 'expand-back';
+    fundo.onclick = () => alternarExpansao(card, btn);
+    document.body.appendChild(fundo);
+    card.classList.add('card-expanded');
+    card.__btn = btn;
+    btn.innerHTML = COLAPSE_SVG;
+    btn.title = 'Restaurar';
+    document.body.classList.add('has-expanded');
+    cardExpandido = card;
+  }
+  recalcularVisuais();
+}
+function initExpandir() {
+  $$('.card, .filters').forEach(card => {
+    const head = card.querySelector('.card__head, .filters__head');
+    if (!head || card.querySelector(':scope > .card__head .expand-btn')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'expand-btn'; btn.title = 'Expandir';
+    btn.setAttribute('aria-label', 'Expandir painel');
+    btn.innerHTML = EXPAND_SVG;
+    btn.onclick = e => { e.stopPropagation(); alternarExpansao(card, btn); };
+    let alvo = head.querySelector('.head-tools');
+    if (!alvo) { alvo = document.createElement('div'); alvo.className = 'head-tools'; head.appendChild(alvo); }
+    alvo.appendChild(btn);
+  });
+}
+
+/* ---------- desempenho por incorporadora ---------- */
+let incSort = 'projetos';
+const diasEntre = (a, b) => (!a || !b) ? null : Math.round((new Date(b.slice(0, 10)) - new Date(a.slice(0, 10))) / 86400000);
+const mediana = arr => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((x, y) => x - y), i = Math.floor(s.length / 2);
+  return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
+};
+const media = arr => arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
+/* "lançado" usa o início do filtro: lançamento anterior a ele já aconteceu.
+   Sem filtro de período, a régua é o mês de referência (mês atual). */
+const rEguaLancamento = () => state.from || nowYM();
+const jaLancado = e => { const m = (e.dtLancamento || '').slice(0, 7); return !!m && m <= rEguaLancamento(); };
+function statsIncorporadoras(emps) {
+  const acc = {};
+  emps.forEach(e => {
+    const nome = e.incorporadora || '—';
+    const a = acc[nome] = acc[nome] || { nome, projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] };
+    a.projetos += 1;
+    a.unidades += e.totalUnidades || 0;
+    const temProto = !!e.dataProtocolo, aprovado = !!e.dataAprovacao || !!e.projetoAprovado;
+    if (aprovado) a.aprovados += 1;
+    else if (temProto || e.projetoProtocolado) a.protocolo += 1;  // protocolado e ainda em análise
+    if (jaLancado(e)) a.lancados += 1;
+    const d = diasEntre(e.dataProtocolo, e.dataAprovacao);
+    if (d != null && d >= 0) a.prazos.push(d);
+  });
+  return Object.values(acc).map(a => ({
+    ...a,
+    medianaAprov: mediana(a.prazos),
+    mediaAprov: media(a.prazos),
+    amostra: a.prazos.length,
+  }));
+}
+function renderIncorporadoras() {
+  const alvo = $('#incTable'); if (!alvo) return;
+  const linhas = statsIncorporadoras(filtered);
+  const ordem = (a, b) => {
+    const va = a[incSort], vb = b[incSort];
+    if (va == null && vb == null) return a.nome.localeCompare(b.nome, 'pt-BR');
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return incSort === 'medianaAprov' ? va - vb : vb - va;   // tempo: menor primeiro
+  };
+  linhas.sort(ordem);
+  const meses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
+  const tot = linhas.reduce((s, l) => ({
+    projetos: s.projetos + l.projetos, unidades: s.unidades + l.unidades,
+    protocolo: s.protocolo + l.protocolo, aprovados: s.aprovados + l.aprovados,
+    lancados: s.lancados + l.lancados, prazos: s.prazos.concat(l.prazos),
+  }), { projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] });
+  const sub = $('#incSub');
+  if (sub) sub.textContent = `Lançado = lançamento até ${ymLabel(rEguaLancamento())} (início do filtro) · tempo de aprovação = protocolo → aprovação`;
+  alvo.innerHTML = `<thead><tr>
+      <th>INCORPORADORA</th><th class="th-r">PROJETOS</th><th class="th-r">UNIDADES</th>
+      <th class="th-r">EM PROTOCOLO</th><th class="th-r">APROVADOS</th><th class="th-r">LANÇADOS</th>
+      <th class="th-r">APROV. MEDIANA</th><th class="th-r">APROV. MÉDIA</th><th class="th-r">AMOSTRA</th>
+    </tr></thead><tbody>
+    ${linhas.map(l => `<tr>
+      <td>${escapeHtml(l.nome)}</td>
+      <td class="num">${fmtInt(l.projetos)}</td>
+      <td class="num">${fmtInt(l.unidades)}</td>
+      <td class="num">${l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>'}</td>
+      <td class="num">${l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>'}</td>
+      <td class="num">${fmtInt(l.lancados)}</td>
+      <td class="num">${meses(l.medianaAprov)}</td>
+      <td class="num">${meses(l.mediaAprov)}</td>
+      <td class="num">${l.amostra || '—'}</td>
+    </tr>`).join('')}
+    <tr class="tot-row">
+      <td>TOTAL · ${linhas.length} incorporadoras</td>
+      <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
+      <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
+      <td class="num">${fmtInt(tot.lancados)}</td>
+      <td class="num">${meses(mediana(tot.prazos))}</td><td class="num">${meses(media(tot.prazos))}</td>
+      <td class="num">${tot.prazos.length || '—'}</td>
+    </tr></tbody>`;
+}
+
+/* ---------- concentração por bairro / macrozona ---------- */
+let concMode = 'bairro';
+function renderConcentracao() {
+  const alvo = $('#concTable'); if (!alvo) return;
+  const chave = e => concMode === 'macrozona' ? mzLabel(e.macrozona) : (e.bairro || '—');
+  const acc = {};
+  filtered.forEach(e => {
+    const k = chave(e);
+    const a = acc[k] = acc[k] || { k, emps: 0, unidades: 0, area: 0, incs: new Set(), areas: [] };
+    a.emps += 1;
+    a.unidades += e.totalUnidades || 0;
+    a.area += e.areaTerreno || 0;
+    if (e.incorporadora) a.incs.add(e.incorporadora);
+    (e.tipologias || []).forEach(t => { if (t.area != null && t.unids) a.areas.push([t.area, t.unids]); });
+  });
+  const linhas = Object.values(acc).sort((a, b) => b.unidades - a.unidades);
+  const totUn = linhas.reduce((s, l) => s + l.unidades, 0) || 1;
+  const maior = linhas[0]?.unidades || 1;
+  const areaMedia = l => {
+    const u = l.areas.reduce((s, [, n]) => s + n, 0);
+    return u ? l.areas.reduce((s, [a, n]) => s + a * n, 0) / u : null;
+  };
+  alvo.innerHTML = `<thead><tr>
+      <th>${concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO'}</th><th class="th-r">EMPREEND.</th>
+      <th class="th-r">UNIDADES</th><th class="th-r">% DO TOTAL</th><th>PARTICIPAÇÃO</th>
+      <th class="th-r">INCORPORADORAS</th><th class="th-r">M² MÉDIO</th><th class="th-r">M² TERRENO</th>
+    </tr></thead><tbody>
+    ${linhas.map(l => `<tr>
+      <td>${escapeHtml(l.k)}</td>
+      <td class="num">${fmtInt(l.emps)}</td>
+      <td class="num">${fmtInt(l.unidades)}</td>
+      <td class="num">${(l.unidades * 100 / totUn).toFixed(1).replace('.', ',')}%</td>
+      <td class="conc-bar"><i style="width:${Math.max(2, l.unidades * 100 / maior)}%"></i></td>
+      <td class="num">${fmtInt(l.incs.size)}</td>
+      <td class="num">${areaMedia(l) == null ? '—' : fmtDec(areaMedia(l), 0)}</td>
+      <td class="num">${fmtInt(l.area)}</td>
+    </tr>`).join('')}
+    <tr class="tot-row">
+      <td>TOTAL · ${linhas.length} ${concMode === 'macrozona' ? 'macrozonas' : 'bairros'}</td>
+      <td class="num">${fmtInt(filtered.length)}</td>
+      <td class="num">${fmtInt(totUn)}</td>
+      <td class="num">100,0%</td><td></td>
+      <td class="num">${fmtInt(new Set(filtered.map(e => e.incorporadora).filter(Boolean)).size)}</td>
+      <td class="num"></td>
+      <td class="num">${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</td>
+    </tr></tbody>`;
+}
+
 /* ---------- configurações (dock flutuante, padrão leadsebm) ---------- */
 function setEditLock(locked) {
   document.body.classList.toggle('edits-locked', locked);
@@ -1524,13 +1845,31 @@ applyAll();
 initEditableText();
 initAIChat();
 initSettingsPanel();
+initPlanoDiretor();
+initExpandir();
+$$('#incSort button').forEach(b => b.onclick = () => {
+  incSort = b.dataset.k;
+  $$('#incSort button').forEach(x => x.classList.toggle('active', x === b));
+  renderIncorporadoras();
+});
+$$('#concMode button').forEach(b => b.onclick = () => {
+  concMode = b.dataset.c;
+  $$('#concMode button').forEach(x => x.classList.toggle('active', x === b));
+  renderConcentracao();
+});
 $$('#lancMode button').forEach(b => b.onclick = () => {
   lancMode = b.dataset.mode;
   $$('#lancMode button').forEach(x => x.classList.toggle('active', x === b));
   renderCharts();
 });
 $$('#viewMode button').forEach(b => b.onclick = () => {
-  detalhado = b.dataset.view === 'tip';
+  detalhado = b.dataset.view === 'det';
   $$('#viewMode button').forEach(x => x.classList.toggle('active', x === b));
+  $('#detMode').hidden = !detalhado; // o seletor de quebra só aparece no modo Detalhado
+  renderCharts();
+});
+$$('#detMode button').forEach(b => b.onclick = () => {
+  detMode = b.dataset.det;
+  $$('#detMode button').forEach(x => x.classList.toggle('active', x === b));
   renderCharts();
 });

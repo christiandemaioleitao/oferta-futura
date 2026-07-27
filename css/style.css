@@ -343,3 +343,52 @@ tr:hover .rt-name{color:var(--red)}
 
 /* linha do radar clicável: localiza o empreendimento no mapa */
 #radarBody tr[data-id]{cursor:pointer}
+
+/* ---------- painel do Plano Diretor ---------- */
+.pd-toggle{display:inline-flex;align-items:center;gap:6px;background:var(--paper);border:1px solid var(--hair);border-radius:7px;padding:5px 10px;font-size:10.5px;letter-spacing:.1em;color:var(--navy);cursor:pointer}
+.pd-toggle:hover{border-color:var(--navy-500)}
+.pd-toggle i{font-style:normal;transition:transform .15s}
+.pd-toggle[aria-expanded="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.pd-toggle[aria-expanded="true"] i{transform:rotate(180deg)}
+.pd-panel{border:1px solid var(--hair);border-radius:10px;background:var(--paper);padding:12px 14px;margin-bottom:12px}
+.pd-panel__head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.pd-panel__head strong{font-size:10.5px;letter-spacing:.14em;color:var(--navy)}
+.pd-status{font-size:10.5px;color:var(--gray-600);flex:1}
+.pd-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}
+.pd-group{background:#fff;border:1px solid var(--hair);border-radius:8px;padding:9px 10px}
+.pd-group__head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.pd-group__head b{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--gray-600)}
+.pd-group__head button{background:none;border:0;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;color:var(--navy-500);cursor:pointer;padding:2px 4px;border-radius:4px}
+.pd-group__head button:hover{color:var(--red);background:var(--paper)}
+.pd-item{display:flex;align-items:center;gap:7px;padding:3px 2px;font-size:11.5px;color:var(--ink);cursor:pointer;line-height:1.3}
+.pd-item:hover{color:var(--navy)}
+.pd-item input{accent-color:var(--red);flex:none}
+.pd-item i{width:11px;height:11px;border-radius:3px;flex:none;opacity:.85}
+.pd-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pd-item.loading span::after{content:' …';color:var(--gray-400)}
+
+/* ---------- expandir card (estilo Power BI) ---------- */
+.head-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.expand-btn{background:var(--paper);border:1px solid var(--hair);border-radius:7px;width:28px;height:28px;display:grid;place-items:center;cursor:pointer;color:var(--navy-500);flex:none}
+.expand-btn:hover{border-color:var(--navy-500);color:var(--navy)}
+.expand-btn svg{width:14px;height:14px}
+body.has-expanded>*:not(.card-expanded):not(#pdfOverlay):not(.ficha){filter:blur(1.5px)}
+.card-expanded{position:fixed!important;inset:14px!important;z-index:1300;margin:0!important;overflow:auto;box-shadow:0 30px 90px rgba(12,31,85,.35)}
+.card-expanded .chart-box{height:calc(100vh - 320px);min-height:320px}
+.card-expanded .chart-box--sm{height:calc(100vh - 320px);min-height:280px}
+.card-expanded #map{height:calc(100vh - 210px)}
+.card-expanded .radar__scroll,.card-expanded .table-scroll{max-height:calc(100vh - 200px)}
+.expand-back{position:fixed;inset:0;background:rgba(12,31,85,.18);z-index:1290}
+
+/* ---------- tabelas de análise ---------- */
+.seg--sub button{font-size:10.5px}
+.inc-table td.num,.conc-table td.num{text-align:right;font-family:var(--font-mono);font-size:12px}
+.inc-table tbody tr:hover,.conc-table tbody tr:hover{background:#FBEDEE}
+.inc-table td:first-child,.conc-table td:first-child{font-family:var(--font-mono);font-weight:600;color:var(--navy);font-size:11.5px}
+.conc-bar{position:relative;min-width:120px}
+.conc-bar i{display:block;height:9px;border-radius:3px;background:var(--navy-500)}
+.tot-row td{font-weight:700;color:var(--navy);border-top:2px solid var(--navy)!important;background:var(--paper)}
+.pill{display:inline-block;padding:1px 7px;border-radius:20px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em}
+.pill--ok{background:#DCFCE7;color:#166534}
+.pill--wait{background:#FEF3C7;color:#92400E}
+.pill--none{background:var(--paper-2);color:var(--gray-600)}
