@@ -14,7 +14,7 @@
 <body>
 
 <!-- ================= CABEÇALHO ================= -->
-<header class="top" id="topHeader">
+<header class="top">
   <svg class="top__net" id="headerNet" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1400 190"></svg>
   <div class="wrap top__in">
     <div class="top__brand">
@@ -65,13 +65,13 @@
   </section>
 
   <!-- ================= FILTROS ================= -->
-  <section class="filters" id="filtersCard">
+  <section class="filters">
     <div class="filters__head">
       <h2 data-editable>Filtros</h2>
       <small class="mono" id="filtersSummary">TODOS OS EMPREENDIMENTOS</small>
       <button class="btn-link mono" id="btnClearFilters" type="button">LIMPAR ✕</button>
     </div>
-    <div class="filters__grid" id="filtersGrid">
+    <div class="filters__grid">
       <div class="field field--range"><label class="mono">PERÍODO DE LANÇAMENTO</label>
         <div class="range-row"><input type="month" id="fltFrom" /><span class="mono">→</span><input type="month" id="fltTo" /></div>
       </div>
@@ -85,7 +85,7 @@
   </section>
 
   <!-- ================= KPIs ================= -->
-  <section class="kpis" id="kpiRow">
+  <section class="kpis">
     <div class="kpi"><span class="mono">EMPREENDIMENTOS</span><b id="kpiCount">—</b><small>projetos monitorados</small></div>
     <div class="kpi"><span class="mono">TOTAL DE UNIDADES</span><b id="kpiUnits">—</b><small>oferta futura projetada</small></div>
     <div class="kpi"><span class="mono">ÁREA DE TERRENO</span><b id="kpiLand">—</b><small>m² somados</small></div>
@@ -95,7 +95,7 @@
 
   <!-- ================= MAPA + GRÁFICO ================= -->
   <section class="duo">
-    <div class="card card--map">
+    <div class="card">
       <div class="card__head">
         <div><h2 data-editable>Mapa georreferenciado</h2><small data-editable>Empreendimentos, terrenos e localizações do KMZ</small></div>
         <div class="map-legend mono">
@@ -110,7 +110,7 @@
       </div>
       <div id="map"></div>
     </div>
-    <div class="card card--chart">
+    <div class="card">
       <div class="card__head">
         <div><h2 data-editable>Oferta disponível por mês</h2><small data-editable>Unidades disponíveis projetadas · ponto vermelho = mês de referência</small></div>
         <div class="seg mono" id="viewMode" title="Detalhado: quebra os dois gráficos por número de quartos (1Q–4Q e comercial)">
@@ -141,7 +141,7 @@
   </section>
 
   <!-- ================= RADAR (TABELA REDESIGN) ================= -->
-  <section class="radar card" id="radarCard">
+  <section class="radar card">
     <div class="card__head radar__head">
       <div><h2 data-editable>Radar de empreendimentos</h2><small data-editable>Projetos monitorados por data prevista de lançamento</small></div>
       <div class="radar__tools">
@@ -219,7 +219,7 @@
   <button class="gear-fab" id="settingsBtn" type="button" title="Menu de configurações" aria-label="Menu de configurações" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Zm8.2 3.8c0-.5-.1-1-.2-1.5l2-1.5-2-3.5-2.4 1a8.3 8.3 0 0 0-2.6-1.5L14.7 2H9.3L9 5a8.3 8.3 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a8.2 8.2 0 0 0 0 3l-2 1.5 2 3.5 2.4-1A8.3 8.3 0 0 0 9 19l.3 3h5.4l.3-3a8.3 8.3 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5c.1-.5.2-1 .2-1.5Z"></path></svg>
   </button>
-  <div class="settings-panel" id="settingsPanel">
+  <div class="settings-panel">
     <label class="settings-row"><span><b>Edições</b><small>Ocultar lápis da página</small></span><input class="switch" id="editLockBtn" type="checkbox" title="Ocultar edições" aria-label="Ocultar edições" /></label>
     <label class="settings-row"><span><b>Rótulos de dados</b><small>Valores nos gráficos de oferta e lançamentos</small></span><input class="switch" id="dataLabelsBtn" type="checkbox" title="Rótulos de dados" aria-label="Rótulos de dados" /></label>
   </div>
@@ -227,7 +227,7 @@
 
 <!-- ================= CHAT IA ================= -->
 <div class="ai-chat" id="aiChat">
-  <div class="chat-popover" id="aiPanel" role="dialog" aria-label="Chat Inteligência EBM">
+  <div class="chat-popover" role="dialog" aria-label="Chat Inteligência EBM">
     <div class="ai-key-panel" id="aiKeyPanel" hidden>
       <label>Provedor<select id="aiProvider"></select></label>
       <label>Modelo<select id="aiModel"></select></label>
@@ -259,16 +259,15 @@
 <div id="pdfStage" aria-hidden="true"></div>
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
-<script src="data/dados_of.js?v=20260727b"></script>
-<script src="data/mapa_of.js?v=20260727b"></script>
-<script src="data/bairros_of.js?v=20260727b"></script>
+<script src="data/dados_of.js?v=20260727c"></script>
+<script src="data/mapa_of.js?v=20260727c"></script>
+<script src="data/bairros_of.js?v=20260727c"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.5.0/dist/leaflet-simple-map-screenshoter.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20260727b"></script>
+<script src="js/app.js?v=20260727c"></script>
 </body>
 </html>

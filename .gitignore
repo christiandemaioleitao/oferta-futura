@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 .claude/
-.env
-
-.vercel
+.vercel/
 .env*
+!.env.example

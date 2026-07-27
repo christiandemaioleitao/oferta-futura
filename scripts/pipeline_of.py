@@ -20,16 +20,14 @@ Parâmetros (variáveis de ambiente, com os padrões do último processamento):
   FATOR_AJUSTE    float    fator multiplicador da curva          (padrão 1.0)
 """
 import os
-import subprocess
-import sys
-import tempfile
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import DateOffset
 
-from of_common import BASE, load_env, neon_connect, sqlserver_connect, copy_dataframe, set_meta
+import preprocess
+from of_common import load_env, neon_connect, sqlserver_connect, copy_dataframe, set_meta
 
 # ================= premissas (idênticas ao script_consolidado_OF.v2) =================
 MAPA_TIPOLOGIA = {
@@ -142,25 +140,33 @@ def definir_cluster(tipo, quartos):
     return 'outros'
 
 
-def limpar_zeros_texto(df):
-    df = df.copy()
-    cols_texto = ['Observacao', 'DadosExtras', 'descPavimentos', 'Logradouro',
-                  'Complemento', 'LinkDoProjeto', 'macrozona']
-    for col in cols_texto:
-        if col in df.columns:
-            df[col] = df[col].astype(str).replace(['0', '0.0', 'nan', 'None', 'NaN', 'nan.0'], '')
-    return df
-
-
 def ajustar_contexto_sintese(df):
+    """Renomeia as colunas da síntese para o vocabulário da master."""
     mapa = {
         'latitude': 'Latitude', 'longitude': 'Longitude',
         'datalancamento': 'dtlançamento', 'macroregiao': 'macrozona',
-        'macrozona': 'macrozona', 'privativa': 'AreaPrivativa',
-        'unidades_tipologia': 'Unids_tipologia', 'tipoempreendimento': 'TipoEmpreendimento',
-        'descpavimentos': 'descPavimentos',
+        'privativa': 'AreaPrivativa', 'tipoempreendimento': 'TipoEmpreendimento',
+        'totalunidades': 'TotalUnidades',
     }
-    return df.rename(columns={c: mapa[c.lower()] for c in df.columns if c.lower() in mapa})
+    df = df.rename(columns={c: mapa[c.lower()] for c in df.columns if c.lower() in mapa})
+    # a síntese já traz o nº de quartos numérico em 'tipologia'; sem isso as linhas
+    # de mercado ficariam sem tipologia_tratada e fora de qualquer corte por quartos
+    if 'tipologia' in df.columns:
+        df['tipologia_tratada'] = pd.to_numeric(df['tipologia'], errors='coerce')
+    return df
+
+
+# colunas de data que trafegam como texto (vêm assim do cadastro e são exibidas na ficha)
+COLS_DATA_TEXTO = ['DataProtocoloProjeto', 'DataProtocoloProjetoOutros',
+                   'DataAprovacao', 'datainobr', 'datahabt']
+# marcadores de vazio das várias origens (SQL Server, Excel, síntese)
+VAZIOS = {'', '-', 'nan', 'NaN', 'None', 'NaT'}
+# colunas em que o cadastro grava literalmente 0 no lugar de "não informado".
+# Fora desta lista o zero é dado (tipologia 0 = comercial, por exemplo).
+COLS_ZERO_VAZIO = ['Observacao', 'DadosExtras', 'descPavimentos', 'Logradouro',
+                   'Complemento', 'LinkDoProjeto', 'macrozona', 'IPTU',
+                   'IdProtocoloProjeto', 'IdProtocoloProjetoOutros',
+                   'Consorcio.Id', 'consideracao_OF']
 
 
 def aplicar_ajustes_finais(df):
@@ -169,15 +175,25 @@ def aplicar_ajustes_finais(df):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
             df[col] = df[col].apply(lambda x: x.replace(day=1) if pd.notnull(x) else x)
-    cols_zero_hifen = [
-        'DataProtocoloProjetoOutros', 'IdProtocoloProjetoOutros', 'ProjetoProtocoladoOutros',
-        'MCMV', 'DataAprovacao', 'FonteDataLancamento', 'FonteTipologia',
-        'FonteDataPrevisaoLancamento', 'tipologia', 'Consorcio.Id', 'consideracao_OF',
-        'incorporadora',
-    ]
-    for col in cols_zero_hifen:
+    # datas-texto num formato único (ISO, sem hora): a síntese trazia '2024-12-18 00:00:00'
+    for col in COLS_DATA_TEXTO:
         if col in df.columns:
-            df[col] = df[col].astype(str).replace(['0', '0.0', '0,0'], '-')
+            d = pd.to_datetime(df[col], errors='coerce')
+            df[col] = d.dt.strftime('%Y-%m-%d').where(d.notna(), None)
+    # macrozona: SQL Server dá '1005' e a síntese '1005.0' — sem isso o mesmo
+    # território vira dois grupos num GROUP BY
+    if 'macrozona' in df.columns:
+        df['macrozona'] = (df['macrozona'].astype(str).str.strip()
+                           .str.replace(r'\.0$', '', regex=True))
+    # nulos de verdade em vez das strings 'nan'/'0' que quebravam IS NULL no Postgres
+    tipadas = set(TIPOS_PG)  # numéricas e datas já têm tipo próprio no Postgres
+    for col in df.columns:
+        if col in tipadas:
+            continue
+        s = df[col]
+        marcadores = VAZIOS | ({'0', '0.0', '0,0'} if col in COLS_ZERO_VAZIO else set())
+        vazio = s.isna() | s.astype(str).str.strip().isin(marcadores)
+        df[col] = s.where(~vazio, None)
     if 'dtlançamento' in df.columns and 'data' in df.columns:
         df['lancamento'] = np.where(df['dtlançamento'] == df['data'], 'sim', 'não')
     return df
@@ -227,6 +243,32 @@ def gravar_sem_previsao(pg):
     set_meta(pg, 'sem_previsao_linhas', len(df))
     print(f'  {SEM_PREV_TABLE}: {len(df)} empreendimentos gravados no Neon')
     return df
+
+
+def checar_variacao(pg, n_emps):
+    """Barra a publicação silenciosa de uma base muito menor que a anterior.
+
+    Uma execução com janela de lançamento errada derruba dezenas de empreendimentos
+    sem erro nenhum — o dashboard só some com metade dos projetos.
+    """
+    try:
+        cur = pg.cursor()
+        cur.execute("SELECT valor FROM of_meta WHERE chave = 'projecao_empreendimentos'")
+        row = cur.fetchone()
+    except Exception:
+        pg.rollback()
+        return
+    anterior = int(row[0]) if row and str(row[0]).strip().isdigit() else 0
+    if not anterior or n_emps >= anterior * 0.9:
+        return
+    queda = 100 - round(n_emps * 100 / anterior)
+    if os.environ.get('OF_IGNORAR_QUEDA') == '1':
+        print(f'  AVISO: {anterior} -> {n_emps} empreendimentos (-{queda}%), ignorado por OF_IGNORAR_QUEDA=1')
+        return
+    raise SystemExit(
+        f'Abortado: {n_emps} empreendimentos na janela contra {anterior} da execução anterior '
+        f'(-{queda}%). Confira OF_LANCTO_INI/OF_LANCTO_FIM; se a queda for real, '
+        f'rode de novo com OF_IGNORAR_QUEDA=1.')
 
 
 def ler_empreendimentos_sql():
@@ -282,7 +324,9 @@ def main():
         limite = df_s['datalancamento'] + DateOffset(months=p - 1)
         v = df_s[df_s['data'] <= limite].groupby(id_cols)['venda_liquida'].sum().reset_index()
         v.columns = id_cols + [f'vendas{p}M']
-        df_prod_s = df_prod_s.merge(v, on=id_cols, how='left').fillna(0)
+        df_prod_s = df_prod_s.merge(v, on=id_cols, how='left')
+        # fillna só na coluna nova: um fillna(0) global viraria datas/bools em zero
+        df_prod_s[f'vendas{p}M'] = df_prod_s[f'vendas{p}M'].fillna(0)
 
     resumo = df_prod_s.groupby('cluster')[['totalunidades', 'vendas3M', 'vendas6M', 'vendas12M', 'vendas18M']].sum().reset_index()
     resumo['totalunidades'] = resumo['totalunidades'].replace(0, np.nan)
@@ -307,14 +351,22 @@ def main():
     dt_ini = datetime.strptime(lancto_ini, '%m/%Y')
     dt_fim = datetime.strptime(lancto_fim, '%m/%Y')
     df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim)].copy()
-    print(f'  janela OF: {len(df_of)} tipologias / {df_of["id_empreendimento"].nunique()} empreendimentos')
+    n_emps = df_of['id_empreendimento'].nunique()
+    print(f'  janela OF: {len(df_of)} tipologias / {n_emps} empreendimentos')
+    checar_variacao(pg, n_emps)
 
+    # tipologia sem contagem de unidades não projeta nada (antes vinha zerada pelo fillna global)
+    df_of['Unids_tipologia'] = pd.to_numeric(df_of['Unids_tipologia'], errors='coerce').fillna(0)
     # PerfilTipologia NULL (cadastro incompleto) cai pro NumeroQuartos; 0 fica só p/ comercial de verdade
     quartos = pd.to_numeric(df_of['NumeroQuartos'], errors='coerce').clip(upper=4)
     df_of['tipologia_tratada'] = (df_of['tipologia'].astype(str).str.upper().str.strip()
                                   .map(MAPA_TIPOLOGIA).fillna(quartos).fillna(0))
     df_of['cluster'] = [definir_cluster(t, q) for t, q in zip(df_of['TipoEmpreendimento'], df_of['tipologia_tratada'])]
-    df_meta = df_of.merge(resumo[['cluster'] + [f'%{i}M' for i in range(1, 19)]], on='cluster', how='left').fillna(0)
+    curva_cols = [f'%{i}M' for i in range(1, 19)]
+    df_meta = df_of.merge(resumo[['cluster'] + curva_cols], on='cluster', how='left')
+    # cluster sem histórico -> curva zerada. fillna(0) global aqui zerava datas de
+    # protocolo/aprovação e flags de projeto (a ficha mostrava "0" como data)
+    df_meta[curva_cols] = df_meta[curva_cols].fillna(0)
 
     proj_rows = []
     for _, row in df_meta.iterrows():
@@ -348,12 +400,13 @@ def main():
         if hist.empty:
             continue
         ultimo = hist.iloc[-1]
+        lancto = pd.to_datetime(prod['datalancamento'], errors='coerce')
+        if pd.isnull(lancto):
+            continue  # sem data de lançamento não há curva de vida a aplicar
         data_cur, est_cur = ultimo['data'], ultimo['unidadesdisponiveis']
         while pd.notnull(data_cur) and data_cur < dt_fim_p and est_cur > 0:
             data_cur += DateOffset(months=1)
-            if pd.isnull(prod['datalancamento']):
-                break
-            vida = (data_cur.year - prod['datalancamento'].year) * 12 + (data_cur.month - prod['datalancamento'].month) + 1
+            vida = (data_cur.year - lancto.year) * 12 + (data_cur.month - lancto.month) + 1
             v_m = int(round(prod['totalunidades'] * pd.to_numeric(curva[f'%{int(vida)}M'].values[0], errors='coerce'))) \
                 if (1 <= vida <= 18 and not curva.empty) else 0
             v_m = min(v_m, max(0, est_cur))
@@ -366,15 +419,13 @@ def main():
     print(f'  síntese estendida: {len(df_final_s)} linhas (+{len(proj_s)} projetadas)')
 
     # -------- união master --------
-    df_final_of = limpar_zeros_texto(df_final_of)
-    df_final_s = limpar_zeros_texto(df_final_s)
     df_s_master = ajustar_contexto_sintese(df_final_s.copy())
     df_master = pd.concat([df_final_of, df_s_master], ignore_index=True, sort=False)
     for col in COLUNAS_ORDEM_FINAL_OF:
         if col not in df_master.columns:
             df_master[col] = np.nan
-    df_master = limpar_zeros_texto(df_master[COLUNAS_ORDEM_FINAL_OF])
-    df_master = aplicar_ajustes_finais(df_master)
+    # única passada de limpeza: normaliza nulos, datas-texto e macrozona
+    df_master = aplicar_ajustes_finais(df_master[COLUNAS_ORDEM_FINAL_OF])
     print(f'Master unificada: {len(df_master)} linhas '
           f'({df_master["id_tipologia"].notna().sum()} OF + {df_master["id_tipologia"].isna().sum()} síntese)')
 
@@ -385,21 +436,13 @@ def main():
         df_pg[c] = pd.to_datetime(df_pg[c], errors='coerce').dt.date
     copy_dataframe(pg, df_pg, 'projecao_of', TIPOS_PG)
     set_meta(pg, 'projecao_linhas', len(df_pg))
+    set_meta(pg, 'projecao_empreendimentos', n_emps)  # base da guarda de sanidade
     set_meta(pg, 'projecao_parametros', f'OF {lancto_ini}-{lancto_fim} | proj {data_fim_proj} | fator {fator_ajuste}')
     pg.close()
 
     # -------- gera dados do dashboard --------
-    tmp_xlsx = os.path.join(tempfile.gettempdir(), 'Projecao_OF_pipeline.xlsx')
-    print('Gerando Excel intermediário e dados do dashboard...')
-    df_x = df_master.copy()
-    df_x.to_excel(tmp_xlsx, index=False, sheet_name='Sheet1')
-    kmz = os.path.join(BASE, 'fontes', 'Oferta Futura - 2026.kmz')
-    r = subprocess.run([sys.executable, os.path.join(BASE, 'scripts', 'preprocess.py'), tmp_xlsx, kmz],
-                       capture_output=True, text=True)
-    print(r.stdout)
-    if r.returncode != 0:
-        print(r.stderr)
-        raise SystemExit('preprocess.py falhou')
+    print('Gerando dados do dashboard...')
+    preprocess.gerar_de_dataframe(df_master, fonte='projecao_of (Neon)')
     print('Pipeline concluído.')
 
 

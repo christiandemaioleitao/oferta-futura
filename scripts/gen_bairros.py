@@ -12,10 +12,9 @@ from xml.etree import ElementTree as ET
 
 from shapely.geometry import Polygon
 
-KMZ = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
-    r"C:\Users\christian.leitao\EBM\Intranet EBM - Novos Negócios\EIM\Inteligencia de mercado\dados_mapa_facil\kmzs\bairros_goiania.kmz"
-)
-OUT = Path(__file__).resolve().parent.parent / "data" / "bairros_of.js"
+BASE = Path(__file__).resolve().parent.parent
+KMZ = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE / "fontes" / "bairros_goiania.kmz"
+OUT = BASE / "data" / "bairros_of.js"
 
 # paleta pastel legível sobre mapa claro e satélite
 PALETTE = ["#3A5AA0", "#E30A12", "#1B9E77", "#E6AB02", "#7570B3", "#D95F02", "#66A61E", "#A6761D"]

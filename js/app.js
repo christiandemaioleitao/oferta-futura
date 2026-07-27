@@ -9,8 +9,10 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 const fmtInt = n => (n == null || isNaN(n)) ? '—' : Math.round(n).toLocaleString('pt-BR');
 const fmtDec = (n, d = 1) => (n == null || isNaN(n)) ? '—' : n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const textKey = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+const textKey = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
 const ymLabel = m => m ? MESES[+m.slice(5, 7) - 1] + '/' + m.slice(2, 4) : '—';
+/* status do empreendimento: a fonte da data diz se ja lancou ou ainda e previsao */
+const statusEmp = e => textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO';
 const dateBR = s => { if (!s) return null; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s; };
 const nowYM = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
@@ -224,8 +226,12 @@ async function loadSemDataEmps() {
   }));
   return semDataEmps;
 }
+/* universo de empreendimentos: os da projeção + os sem previsão, quando a camada está ligada */
+function allEmps() {
+  return semDataOn && semDataEmps ? DATA.empreendimentos.concat(semDataEmps) : DATA.empreendimentos;
+}
 function empById(id) {
-  return DATA.empreendimentos.find(x => x.id === id) || (semDataEmps || []).find(x => x.id === id);
+  return allEmps().find(x => x.id === id);
 }
 function renderSemDataLayer() {
   if (!map || !semDataLayer) return;
@@ -242,7 +248,7 @@ function renderSemDataLayer() {
   });
 }
 function linkKmzFeatures() {
-  const emps = DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).filter(e => e.lat != null && e.lng != null);
+  const emps = allEmps().filter(e => e.lat != null && e.lng != null);
   const feats = MAPA.features || [];
   const claimed = { Polygon: new Set(), Point: new Set() }; // emp já vinculado a uma geometria daquele tipo
   // passo 1: vínculos fortes — marcador dentro do polígono ou nome exato
@@ -278,25 +284,21 @@ function linkKmzFeatures() {
   });
 }
 function anyFilterActive() { return !!(state.from || state.to || Object.values(state).some(v => v instanceof Set && v.size)); }
-let forceKmzFilter = false; // durante capturas da apresentação, esconde geometrias sem vínculo
 function visibleKmzFeatures() {
   const ids = new Set(filtered.map(e => e.id));
   if (semDataOn && semDataEmps) semDataEmps.forEach(e => ids.add(e.id));
-  const filterOn = forceKmzFilter || anyFilterActive();
+  const filterOn = anyFilterActive();
   return (MAPA.features || []).filter(f => f.properties._empId ? ids.has(f.properties._empId) : !filterOn);
 }
 
 /* ---------- mapa ---------- */
-let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles, screenshoter;
+let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles;
 const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
   baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap · &copy; CARTO', crossOrigin: true, maxZoom: 19,
   }).addTo(map);
-  if (window.SimpleMapScreenshoter || L.simpleMapScreenshoter) {
-    try { screenshoter = L.simpleMapScreenshoter({ hidden: true, mimeType: 'image/jpeg' }).addTo(map); } catch (e) { console.warn('screenshoter indisponível', e); }
-  }
   satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
   });
@@ -323,7 +325,9 @@ function initMap() {
   };
   $('#lyrTerrenos').onchange = e => e.target.checked ? map.addLayer(terrenoLayer) : map.removeLayer(terrenoLayer);
   $('#lyrPontos').onchange = e => e.target.checked ? map.addLayer(pontoLayer) : map.removeLayer(pontoLayer);
-  $('#lyrBairros').onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
+  // opcional: renderBairros() remove o controle quando não há camada de bairros carregada
+  const chkBairros = $('#lyrBairros');
+  if (chkBairros) chkBairros.onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
   $('#lyrSat').onchange = e => {
     if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); }
     else { map.removeLayer(satTiles); baseTiles.addTo(map); }
@@ -363,10 +367,10 @@ function updateBairroLayer() {
 }
 function renderKmzLayers() {
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
-  const empById = Object.fromEntries(DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).map(e => [e.id, e]));
+  const porId = Object.fromEntries(allEmps().map(e => [e.id, e]));
   visibleKmzFeatures().forEach(f => {
     const p = f.properties || {};
-    const emp = p._empId ? empById[p._empId] : null;
+    const emp = p._empId ? porId[p._empId] : null;
     const sub = emp ? escapeHtml(emp.empreendimento) + ' · ' : '';
     if (f.geometry.type === 'Polygon') {
       const latlngs = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
@@ -484,9 +488,8 @@ const periodKeyOF = (m, mode) => mode === 'year' ? m.slice(0, 4) : mode === 'qua
 const periodLabelOF = (k, mode) => mode === 'year' ? k : mode === 'quarter' ? 'T' + k.slice(6) + '/' + k.slice(2, 4) : mode === 'ltm' ? ymLabel(k) + ' LTM' : ymLabel(k);
 function ltmLaunchSeries(emps) {
   const monthly = launchSeries(emps);
-  const idx = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
-  const map = new Map(monthly.map(([m, v]) => [idx(m), v]));
-  return monthly.map(([m]) => { const i = idx(m); let s = 0; for (let k = i - 11; k <= i; k++) s += map.get(k) || 0; return [m, s]; });
+  const acum = new Map(monthly.map(([m, v]) => [ymIdx(m), v]));
+  return monthly.map(([m]) => { const i = ymIdx(m); let s = 0; for (let k = i - 11; k <= i; k++) s += acum.get(k) || 0; return [m, s]; });
 }
 function launchSeriesByMode(emps, mode) {
   if (mode === 'ltm') return ltmLaunchSeries(emps);
@@ -683,7 +686,6 @@ $$('#radarTable th[data-sort]').forEach(th => th.onclick = () => {
 });
 
 /* ---------- ficha (tooltip redesign) ---------- */
-let fichaTimer = null, fichaModal = false;
 function elapsedLabel(from, to) {
   if (!from) return null;
   const a = new Date(from.slice(0, 10)), b = to ? new Date(to.slice(0, 10)) : new Date();
@@ -723,18 +725,23 @@ function fillFicha(e) {
 function openFichaModal(id) {
   const e = empById(id);
   if (!e) return;
-  fichaModal = true;
   const f = $('#ficha');
   fillFicha(e);
-  f.hidden = false; f.classList.remove('as-tip');
+  f.hidden = false;
   const fw = Math.min(760, window.innerWidth * .94);
   f.style.width = fw + 'px';
   f.style.left = (window.innerWidth - fw) / 2 + 'px';
   f.style.top = Math.max(16, (window.innerHeight - Math.min(f.scrollHeight, window.innerHeight * .88)) / 2) + 'px';
 }
 window.openFichaById = id => openFichaModal(id);
-$('#fClose').onclick = () => { fichaModal = false; $('#ficha').hidden = true; };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { fichaModal = false; $('#ficha').hidden = true; } });
+const fecharFicha = () => { $('#ficha').hidden = true; };
+$('#fClose').onclick = fecharFicha;
+/* ESC fecha tudo que estiver aberto — um único listener em vez de um por componente */
+let fecharDock = () => {};
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  fecharFicha(); setAIChatOpen(false); fecharDock();
+});
 
 /* ---------- importação Excel ---------- */
 function num(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
@@ -943,7 +950,7 @@ async function exportPdf() {
           <td>${escapeHtml(mzLabel(e.macrozona))}</td>
           <td class="r">${fmtInt(e.areaTerreno)}</td>
           <td class="r">${fmtInt(e.totalUnidades)}</td>
-          <td>${textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO'}</td>
+          <td>${statusEmp(e)}</td>
         </tr>`).join('')}</tbody></table>
         <div class="pdf-foot"><span>EBM Inteligência · Dados que orientam decisões</span><span>${today} · pág. ${p + 3}</span></div>`;
       stage.appendChild(pg);
@@ -1080,7 +1087,7 @@ function deckTableHtml(emps, max = 11) {
   const rows = [...emps].sort((a, b) => (a.dtLancamento || '').localeCompare(b.dtLancamento || ''));
   const shown = rows.slice(0, max);
   return `<table class="pdf-table"><thead><tr><th>EMPREENDIMENTO</th><th>LANÇAMENTO</th><th>INCORPORADORA</th><th>BAIRRO</th><th class="r">M² TERRENO</th><th class="r">TOTAL UNIDS</th><th>STATUS</th></tr></thead>
-    <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${mesAno((e.dtLancamento || '').slice(0, 7))}</td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${fmtInt(e.totalUnidades)}</td><td>${textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO'}</td></tr>`).join('')}</tbody></table>
+    <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${mesAno((e.dtLancamento || '').slice(0, 7))}</td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${fmtInt(e.totalUnidades)}</td><td>${statusEmp(e)}</td></tr>`).join('')}</tbody></table>
     ${rows.length > max ? `<p class="mono" style="font-size:9.5px;color:${GRAY};margin-top:8px">+ ${rows.length - max} empreendimento(s) — lista completa no dashboard.</p>` : ''}`;
 }
 function deckFoot(page, periodo) {
@@ -1174,7 +1181,6 @@ async function exportDeck() {
     console.error(err);
     alert('Falha ao gerar a apresentação: ' + err.message);
   } finally {
-    forceKmzFilter = false;
     $('#pdfOverlay').hidden = true;
   }
 }
@@ -1185,8 +1191,7 @@ function exportXlsx() {
   const st = $('#importStatus');
   const wb = XLSX.utils.book_new();
   const m = salesAverages(filtered);
-  const status = e => textKey(e.fonteDataLancamento || '').includes('LANC') ? 'LANÇADO' : 'PREVISTO';
-  // Resumo
+    // Resumo
   const resumo = [
     ['Relatório', 'Oferta Futura — EBM Inteligência'],
     ['Emitido em', new Date().toLocaleString('pt-BR')],
@@ -1203,7 +1208,7 @@ function exportXlsx() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo');
   // Radar
   const radar = sortedRows().map(e => ({
-    'Empreendimento': e.empreendimento, 'Lançamento': (e.dtLancamento || '').slice(0, 7), 'Status': status(e),
+    'Empreendimento': e.empreendimento, 'Lançamento': (e.dtLancamento || '').slice(0, 7), 'Status': statusEmp(e),
     'Incorporadora': e.incorporadora, 'Bairro': e.bairro, 'Macrozona': mzLabel(e.macrozona), 'Tipo': e.tipo,
     'M² Terreno': e.areaTerreno, 'Total Unidades': e.totalUnidades, 'Cluster': e.cluster,
     'Protocolo': e.dataProtocolo || '', 'Aprovação': (e.dataAprovacao || '').slice(0, 10),
@@ -1239,10 +1244,10 @@ const xmlEsc = s => String(s ?? '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>'
 async function exportKmz() {
   const st = $('#importStatus');
   const feats = visibleKmzFeatures();
-  const empById = Object.fromEntries(DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).map(e => [e.id, e]));
+  const porId = Object.fromEntries(allEmps().map(e => [e.id, e]));
   const pmPoly = [], pmPoint = [];
   feats.forEach((f, i) => {
-    const p = f.properties, emp = p._empId ? empById[p._empId] : null;
+    const p = f.properties, emp = p._empId ? porId[p._empId] : null;
     const desc = emp ? `${emp.empreendimento} · ${emp.incorporadora || ''} · ${emp.bairro || ''} · Lançamento ${(emp.dtLancamento || '—').slice(0, 7)}` : (p.folder || '');
     if (f.geometry.type === 'Polygon') {
       const coords = f.geometry.coordinates[0].map(c => `${c[0]},${c[1]},0`).join(' ');
@@ -1326,7 +1331,9 @@ function initEditableText() {
 /* ============================================================
    Chat de IA integrado (portado de leadsebm2.0)
    ============================================================ */
-const DEFAULT_AI_PROVIDER = 'mistral', DEFAULT_AI_MODEL = 'mistral-large-latest', DEFAULT_AI_KEY = 'JoBnridIgcpzb2xC039xbOL50IfhrU9x';
+/* nunca embutir chave de API aqui: este arquivo é servido ao navegador.
+   A chave é do usuário e fica só no localStorage dele (botão de chave no chat). */
+const DEFAULT_AI_PROVIDER = 'openrouter', DEFAULT_AI_MODEL = 'openai/gpt-oss-120b';
 const AI_PROVIDERS = {
   openai: { label: 'OpenAI', type: 'chat', endpoint: 'https://api.openai.com/v1/chat/completions', models: ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'] },
   deepseek: { label: 'DeepSeek', type: 'chat', endpoint: 'https://api.deepseek.com/chat/completions', models: ['deepseek-chat', 'deepseek-reasoner'] },
@@ -1338,9 +1345,11 @@ const AI_PROVIDERS = {
   together: { label: 'Together AI', type: 'chat', endpoint: 'https://api.together.xyz/v1/chat/completions', models: ['meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1', 'deepseek-ai/deepseek-coder-33b-instruct'] },
 };
 function aiConfig() {
-  const key = localStorage.getItem('ofDashboardAIKey');
-  if (!key) return { provider: DEFAULT_AI_PROVIDER, model: DEFAULT_AI_MODEL, key: DEFAULT_AI_KEY };
-  return { provider: localStorage.getItem('ofDashboardAIProvider') || DEFAULT_AI_PROVIDER, model: localStorage.getItem('ofDashboardAIModel') || DEFAULT_AI_MODEL, key };
+  return {
+    provider: localStorage.getItem('ofDashboardAIProvider') || DEFAULT_AI_PROVIDER,
+    model: localStorage.getItem('ofDashboardAIModel') || DEFAULT_AI_MODEL,
+    key: localStorage.getItem('ofDashboardAIKey') || '',
+  };
 }
 function fillAIModels(provider, selected = '') {
   const sel = $('#aiModel'), custom = $('#aiCustomModel'), p = AI_PROVIDERS[provider] || AI_PROVIDERS.openai;
@@ -1401,7 +1410,7 @@ async function runNeonSQL(sql) {
 }
 async function callAIProvider(messages) {
   const cfg = aiConfig(), p = AI_PROVIDERS[cfg.provider];
-  if (!p || !cfg.key) throw new Error('Cadastre uma chave de API antes de perguntar.');
+  if (!p || !cfg.key) throw new Error('cadastre uma chave de API no botão de chave (🔑) antes de perguntar.');
   if (p.type === 'gemini') {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: aiSystemPrompt() }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { temperature: .15, maxOutputTokens: 1400 } }) });
     const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || 'Falha na API Gemini.');
@@ -1456,10 +1465,9 @@ function initAIChat() {
   const saved = aiConfig();
   provider.value = AI_PROVIDERS[saved.provider] ? saved.provider : DEFAULT_AI_PROVIDER;
   fillAIModels(provider.value, saved.model);
-  key.value = saved.key === DEFAULT_AI_KEY ? '' : saved.key;
+  key.value = saved.key;
   provider.onchange = () => { fillAIModels(provider.value); if (custom) custom.value = ''; };
   if (fab) fab.onclick = () => setAIChatOpen(!$('#aiChat').classList.contains('is-open'));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') setAIChatOpen(false); });
   btn.onclick = () => { if (!requireEditPassword()) { alert('Senha incorreta.'); return; } setAIChatOpen(true); panel.hidden = false; key.focus(); };
   cancel.onclick = () => { panel.hidden = true; question.focus(); };
   save.onclick = () => {
@@ -1492,7 +1500,7 @@ function initSettingsPanel() {
   btn.onclick = e => { e.stopPropagation(); setOpen(!dock.classList.contains('open')); };
   dock.onclick = e => e.stopPropagation();
   document.addEventListener('click', () => setOpen(false));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+  fecharDock = () => setOpen(false);
   setEditLock(localStorage.getItem('ofDashboardEditsLocked') === '1');
   const lock = $('#editLockBtn');
   if (lock) lock.onchange = () => setEditLock(lock.checked);

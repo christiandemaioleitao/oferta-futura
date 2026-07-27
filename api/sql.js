@@ -2,11 +2,19 @@
 // POST {sql: "SELECT ..."} -> {rows: [...], rowCount, truncated}
 import { neon } from '@neondatabase/serverless';
 
-const BLOCKED = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|call|do|merge|comment|refresh|reindex|cluster|listen|notify|set|reset|begin|commit|rollback|savepoint|prepare|execute|deallocate|lock|pg_sleep|pg_read|pg_write|lo_)\b/i;
+// Comandos que não podem aparecer numa leitura. Palavras que também são identificadores
+// do schema ficam de fora de propósito: 'cluster' é coluna de projecao_of, e barrá-la
+// rejeitava consultas legítimas do chat.
+const BLOCKED = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|call|merge|reindex|lock|pg_sleep|pg_read|pg_write|pg_ls|pg_terminate|pg_cancel|lo_import|lo_export|dblink)\b/i;
 const MAX_ROWS = 200;
+const ORIGENS = [/^https:\/\/oferta-futura[a-z0-9-]*\.vercel\.app$/, /^http:\/\/localhost(:\d+)?$/];
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  if (ORIGENS.some(re => re.test(origin))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
