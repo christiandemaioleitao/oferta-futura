@@ -69,9 +69,10 @@ button{font-family:inherit}
 .filters__head small{font-size:11px;letter-spacing:.06em;color:var(--gray-600);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .filters__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
 .field label{display:block;font-size:10.5px;letter-spacing:.14em;color:var(--gray-600);margin-bottom:6px}
+.field--range{grid-column:span 2}
 .range-row{display:flex;align-items:center;gap:6px}
 .range-row span{color:var(--gray-400);font-size:12px}
-.range-row input{width:100%;border:1px solid var(--hair);border-radius:8px;padding:8px 9px;font-family:var(--font-mono);font-size:12px;color:var(--navy);background:var(--paper)}
+.range-row input{width:100%;min-width:0;flex:1;border:1px solid var(--hair);border-radius:8px;padding:8px 9px;font-family:var(--font-mono);font-size:12px;color:var(--navy);background:var(--paper)}
 .range-row input:focus{outline:2px solid rgba(58,90,160,.35)}
 
 /* multiselect */
