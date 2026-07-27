@@ -343,3 +343,6 @@ tr:hover .rt-name,tr.hl .rt-name{color:var(--red)}
   .top__kpi{padding:4px 18px 4px 0;border-left:0;border-right:1px solid var(--hair-dark)}
   #map{height:380px}
 }
+
+/* linha do radar clicável: localiza o empreendimento no mapa */
+#radarBody tr[data-id]{cursor:pointer}

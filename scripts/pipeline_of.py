@@ -183,6 +183,52 @@ def aplicar_ajustes_finais(df):
     return df
 
 
+SEM_PREV_TABLE = 'empreendimentos-sem-previsão-lançamento'
+SQL_SEM_PREVISAO = """
+SELECT
+    ec.Id                 AS id,
+    ec.Empreendimento     AS empreendimento,
+    i.Nome                AS incorporadora,
+    b.Nome                AS bairro,
+    c.Nome                AS cidade,
+    c.Uf                  AS uf,
+    ec.TipoEmpreendimento AS tipo,
+    ec.MacroRegiao        AS macrozona,
+    ec.Latitude           AS lat,
+    ec.Longitude          AS lng,
+    ec.Logradouro         AS logradouro,
+    ec.Complemento        AS complemento,
+    ec.AreaTerreno        AS area_terreno,
+    ec.TotalUnidades      AS total_unidades,
+    ec.Observacao         AS observacao,
+    ec.ProjetoProtocolado AS projeto_protocolado,
+    ec.ProjetoAprovado    AS projeto_aprovado,
+    ec.FonteEmpreendimento AS fonte_empreendimento
+FROM dbo.EmpreendimentoCadastro ec
+JOIN dbo.Cidade c        ON c.Id = ec.CidadeId
+LEFT JOIN dbo.Bairro b   ON b.Id = ec.BairroId
+LEFT JOIN dbo.Incorporadora i ON i.Id = ec.IncorporadoraId
+WHERE ec.Inativo = 0 AND c.Regional = 'GO'
+  AND ec.DataLancamento IS NULL AND ec.DataPrevisaoLancamento IS NULL
+"""
+
+
+def gravar_sem_previsao(pg):
+    """Terrenos monitorados sem data de lançamento/previsão -> tabela própria no Neon.
+
+    O dashboard consome via /api/sql (checkbox "sem previsão" no mapa)."""
+    cn = sqlserver_connect()
+    df = pd.read_sql(SQL_SEM_PREVISAO, cn)
+    cn.close()
+    df['link_portal'] = df['id'].apply(lambda x: f'https://inteligencia.ebm.com.br/Empreendimento/Alterar/{int(x)}')
+    tipos = {'id': 'bigint', 'lat': 'double precision', 'lng': 'double precision',
+             'area_terreno': 'double precision', 'total_unidades': 'double precision'}
+    copy_dataframe(pg, df, SEM_PREV_TABLE, tipos)
+    set_meta(pg, 'sem_previsao_linhas', len(df))
+    print(f'  {SEM_PREV_TABLE}: {len(df)} empreendimentos gravados no Neon')
+    return df
+
+
 def ler_empreendimentos_sql():
     print('Lendo empreendimentos do SQL Server...')
     conn = sqlserver_connect()
@@ -219,6 +265,7 @@ def main():
     pg = neon_connect()
     df_s = ler_sintese_neon(pg)
     df_of = ler_empreendimentos_sql()
+    gravar_sem_previsao(pg)
 
     # -------- etapa 1: curvas por cluster (síntese) --------
     df_s['datalancamento'] = pd.to_datetime(df_s['datalancamento'], errors='coerce')

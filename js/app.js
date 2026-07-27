@@ -204,8 +204,45 @@ function distM(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+/* terrenos sem data de lançamento/previsão — vêm do Neon (tabela dedicada) sob demanda */
+let semDataEmps = null, semDataOn = false, semDataLayer = null;
+const SEM_DATA_COLOR = '#8A93A6';
+async function loadSemDataEmps() {
+  if (semDataEmps) return semDataEmps;
+  const r = await runNeonSQL('SELECT * FROM "empreendimentos-sem-previsão-lançamento"');
+  const numOrNull = v => { const n = parseFloat(v); return isFinite(n) && n !== 0 ? n : null; };
+  semDataEmps = (r.rows || []).map(x => ({
+    id: 'sd-' + x.id, empreendimento: x.empreendimento, incorporadora: x.incorporadora,
+    bairro: x.bairro, cidade: x.cidade, uf: x.uf, tipo: x.tipo, macrozona: x.macrozona,
+    lat: numOrNull(x.lat), lng: numOrNull(x.lng),
+    logradouro: x.logradouro, complemento: x.complemento,
+    areaTerreno: numOrNull(x.area_terreno), totalUnidades: numOrNull(x.total_unidades),
+    observacao: x.observacao, linkPortal: x.link_portal,
+    projetoProtocolado: String(x.projeto_protocolado) === 'true' || String(x.projeto_protocolado) === 'True',
+    projetoAprovado: String(x.projeto_aprovado) === 'true' || String(x.projeto_aprovado) === 'True',
+    fonteEmpreendimento: x.fonte_empreendimento, dtLancamento: null, tipologias: [], mensal: [], semData: true,
+  }));
+  return semDataEmps;
+}
+function empById(id) {
+  return DATA.empreendimentos.find(x => x.id === id) || (semDataEmps || []).find(x => x.id === id);
+}
+function renderSemDataLayer() {
+  if (!map || !semDataLayer) return;
+  semDataLayer.clearLayers();
+  if (!semDataOn || !semDataEmps) return;
+  semDataEmps.forEach(e => {
+    if (e.lat == null || e.lng == null) return;
+    const mk = L.circleMarker([e.lat, e.lng], { radius: 7, color: '#fff', weight: 2, fillColor: SEM_DATA_COLOR, fillOpacity: .95 });
+    mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(e.empreendimento)}</b><span class="mono">${escapeHtml(e.bairro || '')} · SEM PREVISÃO DE LANÇAMENTO</span><button onclick="window.openFichaById('${e.id}')">VER FICHA COMPLETA</button></div>`);
+    mk.on('mouseover', function () { this.setStyle({ radius: 9, fillColor: NAVY }); });
+    mk.on('mouseout', function () { this.setStyle({ radius: 7, fillColor: SEM_DATA_COLOR }); });
+    empMarkers[e.id] = mk;
+    mk.addTo(semDataLayer);
+  });
+}
 function linkKmzFeatures() {
-  const emps = DATA.empreendimentos.filter(e => e.lat != null && e.lng != null);
+  const emps = DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).filter(e => e.lat != null && e.lng != null);
   const feats = MAPA.features || [];
   const claimed = { Polygon: new Set(), Point: new Set() }; // emp já vinculado a uma geometria daquele tipo
   // passo 1: vínculos fortes — marcador dentro do polígono ou nome exato
@@ -244,12 +281,14 @@ function anyFilterActive() { return !!(state.from || state.to || Object.values(s
 let forceKmzFilter = false; // durante capturas da apresentação, esconde geometrias sem vínculo
 function visibleKmzFeatures() {
   const ids = new Set(filtered.map(e => e.id));
+  if (semDataOn && semDataEmps) semDataEmps.forEach(e => ids.add(e.id));
   const filterOn = forceKmzFilter || anyFilterActive();
   return (MAPA.features || []).filter(f => f.properties._empId ? ids.has(f.properties._empId) : !filterOn);
 }
 
 /* ---------- mapa ---------- */
 let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles, screenshoter;
+const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
   baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -267,8 +306,21 @@ function initMap() {
   terrenoLayer = L.layerGroup().addTo(map);
   pontoLayer = L.layerGroup();
   bairroLayer = L.layerGroup();
+  semDataLayer = L.layerGroup();
   renderBairros();
   $('#lyrEmp').onchange = e => e.target.checked ? map.addLayer(empLayer) : map.removeLayer(empLayer);
+  $('#lyrSemData').onchange = async e => {
+    semDataOn = e.target.checked;
+    if (semDataOn) {
+      try { await loadSemDataEmps(); }
+      catch (err) { console.error(err); alert('Não consegui carregar os terrenos sem previsão: ' + err.message); e.target.checked = semDataOn = false; return; }
+      map.addLayer(semDataLayer);
+    } else map.removeLayer(semDataLayer);
+    linkKmzFeatures(); // com os sem-data no jogo, terrenos do KMZ deles ganham vínculo por nome
+    renderSemDataLayer();
+    renderKmzLayers();
+    renderRadar();
+  };
   $('#lyrTerrenos').onchange = e => e.target.checked ? map.addLayer(terrenoLayer) : map.removeLayer(terrenoLayer);
   $('#lyrPontos').onchange = e => e.target.checked ? map.addLayer(pontoLayer) : map.removeLayer(pontoLayer);
   $('#lyrBairros').onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
@@ -311,7 +363,7 @@ function updateBairroLayer() {
 }
 function renderKmzLayers() {
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
-  const empById = Object.fromEntries(DATA.empreendimentos.map(e => [e.id, e]));
+  const empById = Object.fromEntries(DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).map(e => [e.id, e]));
   visibleKmzFeatures().forEach(f => {
     const p = f.properties || {};
     const emp = p._empId ? empById[p._empId] : null;
@@ -344,9 +396,20 @@ function renderMap() {
     mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(e.empreendimento)}</b><span class="mono">${escapeHtml(e.bairro || '')} · ${ymLabel((e.dtLancamento || '').slice(0, 7))} · ${fmtInt(e.totalUnidades)} UNIDS</span><button onclick="window.openFichaById('${e.id}')">VER FICHA COMPLETA</button></div>`);
     mk.on('mouseover', function () { this.setStyle({ fillColor: hover, radius: 10 }); });
     mk.on('mouseout', function () { this.setStyle({ fillColor: base, radius: 8 }); });
+    empMarkers[e.id] = mk;
     mk.addTo(empLayer);
   });
+  renderSemDataLayer();
   if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.15));
+}
+/* clique na linha do radar: voa até o empreendimento no mapa e abre o popup */
+function locateOnMap(id) {
+  const e = empById(id);
+  if (!map || !e || e.lat == null || e.lng == null) return;
+  document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  map.setView([e.lat, e.lng], Math.max(map.getZoom(), 16));
+  const mk = empMarkers[id];
+  if (mk) setTimeout(() => mk.openPopup(), 350);
 }
 
 /* ---------- gráficos ---------- */
@@ -582,6 +645,7 @@ function renderPivot() {
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.6 1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14 10a5 5 0 0 0-7.07 0l-2.83 2.83a5 5 0 0 0 7.07 7.07l1.59-1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 function sortedRows() {
   let rows = filtered;
+  if (semDataOn && semDataEmps) rows = rows.concat(semDataEmps);
   if (searchTerm) { const q = textKey(searchTerm); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
   const dir = sortAsc ? 1 : -1;
   return [...rows].sort((a, b) => {
@@ -605,6 +669,7 @@ function renderRadar() {
   </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:30px">Nenhum empreendimento para os filtros atuais.</td></tr>`;
   $$('#radarBody tr[data-id]').forEach(tr => {
     tr.querySelector('.rt-name')?.addEventListener('click', () => openFichaModal(tr.dataset.id));
+    tr.addEventListener('click', ev => { if (ev.target.closest('a, .rt-name')) return; locateOnMap(tr.dataset.id); });
   });
   const ind = $('#radarTable .sort-ind'); if (ind) ind.remove();
   const th = $(`#radarTable th[data-sort="${sortKey}"]`);
@@ -634,7 +699,7 @@ function fillFicha(e) {
   $('#fName').textContent = e.empreendimento || '—';
   $('#fLoc').textContent = [e.bairro, [e.cidade, e.uf].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
   const lanc = textKey(e.fonteDataLancamento || '').includes('LANC');
-  $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
+  $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : e.semData ? '<span class="badge badge--red" style="background:#8A93A6">SEM PREVISÃO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
     + (e.projetoProtocolado ? '<span class="badge badge--outline">PROJETO</span>' : '');
   $('#fInc').textContent = e.incorporadora || '—';
   $('#fFonteTip').textContent = e.fonteTipologia || 'PROJETO';
@@ -654,7 +719,7 @@ function fillFicha(e) {
   makeField($('#fichaNet'), { w: 500, h: 150, n: 12, color: '#AEBFDE', dist: 170, lineOp: .5, dotOp: .6 });
 }
 function openFichaModal(id) {
-  const e = DATA.empreendimentos.find(x => x.id === id);
+  const e = empById(id);
   if (!e) return;
   fichaModal = true;
   const f = $('#ficha');
@@ -1172,7 +1237,7 @@ const xmlEsc = s => String(s ?? '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>'
 async function exportKmz() {
   const st = $('#importStatus');
   const feats = visibleKmzFeatures();
-  const empById = Object.fromEntries(DATA.empreendimentos.map(e => [e.id, e]));
+  const empById = Object.fromEntries(DATA.empreendimentos.concat(semDataOn && semDataEmps ? semDataEmps : []).map(e => [e.id, e]));
   const pmPoly = [], pmPoint = [];
   feats.forEach((f, i) => {
     const p = f.properties, emp = p._empId ? empById[p._empId] : null;
