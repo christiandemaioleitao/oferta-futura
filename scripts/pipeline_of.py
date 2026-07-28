@@ -246,30 +246,44 @@ def gravar_sem_previsao(pg):
     return df
 
 
-def checar_variacao(pg, n_emps):
+def ler_meta(pg, chave):
+    try:
+        cur = pg.cursor()
+        cur.execute('SELECT valor FROM of_meta WHERE chave = %s', (chave,))
+        row = cur.fetchone()
+    except Exception:
+        pg.rollback()
+        return None
+    return str(row[0]) if row else None
+
+
+def checar_variacao(pg, n_emps, parametros):
     """Barra a publicação silenciosa de uma base muito menor que a anterior.
 
     Uma execução com janela de lançamento errada derruba dezenas de empreendimentos
     sem erro nenhum — o dashboard só some com metade dos projetos.
+
+    Estreitar a janela de propósito também cai aqui, e cai certo: o pipeline não tem
+    como saber se a queda foi intencional. Por isso a mensagem mostra os parâmetros
+    das duas execuções — se a janela mudou, a queda é esperada e o operador libera
+    com OF_IGNORAR_QUEDA=1 (campo "ignorar_queda" no formulário do workflow).
     """
-    try:
-        cur = pg.cursor()
-        cur.execute("SELECT valor FROM of_meta WHERE chave = 'projecao_empreendimentos'")
-        row = cur.fetchone()
-    except Exception:
-        pg.rollback()
-        return
-    anterior = int(row[0]) if row and str(row[0]).strip().isdigit() else 0
+    bruto = ler_meta(pg, 'projecao_empreendimentos')
+    anterior = int(bruto) if bruto and bruto.strip().isdigit() else 0
     if not anterior or n_emps >= anterior * 0.9:
         return
     queda = 100 - round(n_emps * 100 / anterior)
+    antes = ler_meta(pg, 'projecao_parametros') or '(não registrados)'
     if os.environ.get('OF_IGNORAR_QUEDA') == '1':
         print(f'  AVISO: {anterior} -> {n_emps} empreendimentos (-{queda}%), ignorado por OF_IGNORAR_QUEDA=1')
         return
     raise SystemExit(
-        f'Abortado: {n_emps} empreendimentos na janela contra {anterior} da execução anterior '
-        f'(-{queda}%). Confira OF_LANCTO_INI/OF_LANCTO_FIM; se a queda for real, '
-        f'rode de novo com OF_IGNORAR_QUEDA=1.')
+        f'Abortado: {n_emps} empreendimentos na janela contra {anterior} da execução anterior (-{queda}%).\n'
+        f'  parâmetros desta execução: {parametros}\n'
+        f'  parâmetros da anterior:    {antes}\n'
+        '  Se a janela mudou, a queda é esperada: rode de novo com ignorar_queda = sim\n'
+        '  (ou OF_IGNORAR_QUEDA=1). Se a janela é a mesma, algo mudou na fonte — investigue\n'
+        '  antes de publicar.')
 
 
 def ler_empreendimentos_sql():
@@ -320,6 +334,7 @@ def main():
     lancto_fim = os.environ.get('OF_LANCTO_FIM', '12/2027')
     data_fim_proj = os.environ.get('DATA_FIM_PROJ', '06/2027')
     fator_ajuste = float(os.environ.get('FATOR_AJUSTE', '1.0').replace(',', '.'))
+    parametros = f'OF {lancto_ini}-{lancto_fim} | proj {data_fim_proj} | fator {fator_ajuste}'
     print(f'Parâmetros: OF {lancto_ini}–{lancto_fim} | projeção síntese até {data_fim_proj} | fator {fator_ajuste}')
 
     pg = neon_connect()
@@ -371,7 +386,7 @@ def main():
     df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim)].copy()
     n_emps = df_of['id_empreendimento'].nunique()
     print(f'  janela OF: {len(df_of)} tipologias / {n_emps} empreendimentos')
-    checar_variacao(pg, n_emps)
+    checar_variacao(pg, n_emps, parametros)
 
     # tipologia sem contagem de unidades não projeta nada (antes vinha zerada pelo fillna global)
     df_of['Unids_tipologia'] = pd.to_numeric(df_of['Unids_tipologia'], errors='coerce').fillna(0)
@@ -455,7 +470,7 @@ def main():
     copy_dataframe(pg, df_pg, 'projecao_of', TIPOS_PG)
     set_meta(pg, 'projecao_linhas', len(df_pg))
     set_meta(pg, 'projecao_empreendimentos', n_emps)  # base da guarda de sanidade
-    set_meta(pg, 'projecao_parametros', f'OF {lancto_ini}-{lancto_fim} | proj {data_fim_proj} | fator {fator_ajuste}')
+    set_meta(pg, 'projecao_parametros', parametros)
     pg.close()
 
     # -------- gera dados do dashboard --------

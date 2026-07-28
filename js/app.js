@@ -197,7 +197,6 @@ function renderKPIs() {
   $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0));
   const m = salesAverages(filtered);
   $('#kpiAvgSales').textContent = m.avg == null ? '—' : fmtDec(m.avg, 1);
-  $('#kpiAvgSalesDefl').textContent = m.defl == null ? '—' : fmtDec(m.defl, 1);
   $('#footUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—') + ' · Fonte: ' + (DATA.fonte || 'base importada');
 }
 
@@ -449,15 +448,24 @@ const dataLabelsPlugin = {
     const step = Math.max(1, Math.ceil(n / 24)); // pula rótulos quando há muitos pontos
     ctx.save();
     ctx.font = "600 9px 'IBM Plex Mono', monospace";
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'center';
     chart.data.datasets.forEach((ds, di) => {
       const meta = chart.getDatasetMeta(di);
+      if (meta.hidden) return;                          // série desligada na legenda
       meta.data.forEach((el, i) => {
         if (i % step) return;
         const v = ds.data[i];
-        if (v == null || !el) return;
-        ctx.fillStyle = NAVY;
-        ctx.fillText(fmtInt(v), el.x, el.y - 4);
+        if (!v || !el) return;                          // zero não vira rótulo
+        /* barra empilhada: o rótulo vai dentro do segmento, em branco. Fora dela
+           os rótulos das séries se sobrepõem no topo da pilha e viram borrão. */
+        if (el.base !== undefined) {
+          if (Math.abs(el.base - el.y) < 13) return;     // segmento fino: não cabe
+          ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+          ctx.fillText(fmtInt(v), el.x, (el.y + el.base) / 2);
+        } else {
+          ctx.fillStyle = NAVY; ctx.textBaseline = 'bottom';
+          ctx.fillText(fmtInt(v), el.x, el.y - 4);
+        }
       });
     });
     ctx.restore();
@@ -607,6 +615,7 @@ function renderCharts() {
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
       data: { labels: months.map(ymLabel), datasets: dsets },
+      plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: legendCfg, tooltip: { callbacks: {
           label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${months[c.dataIndex] === ref ? ' · mês de referência' : ''}`,
@@ -647,6 +656,7 @@ function renderCharts() {
     chartLanc = new Chart($('#chartLanc'), {
       type: 'bar',
       data: { labels: keys.map(k => periodLabelOF(k, lancMode)), datasets: dsets },
+      plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: legendCfg, tooltip: { callbacks: {
           label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)}${lancMode === 'ltm' ? ' un. · últimos 12 meses' : ' un. lançadas'}`,
@@ -701,11 +711,14 @@ function cmpOrd(a, b, asc) {
   const d = (typeof a === 'number' && typeof b === 'number') ? a - b : String(a).localeCompare(String(b), 'pt-BR');
   return asc ? d : -d;
 }
-/* ordena grupos e, dentro de cada grupo, as folhas pela mesma coluna */
-function ordenarHierarquia(linhas, id, valor) {
+/* ordena a árvore inteira pela mesma coluna: cada nível ordena entre irmãos */
+function ordenarArvore(nos, id, valor) {
   const o = ordens[id];
-  linhas.forEach(l => l.filhos && l.filhos.sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc)));
-  return [...linhas].sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc));
+  const ordena = arr => {
+    arr.forEach(n => { if (n.filhos) n.filhos = ordena(n.filhos); });
+    return [...arr].sort((a, b) => cmpOrd(valor(a, o.k), valor(b, o.k), o.asc));
+  };
+  return ordena(nos);
 }
 /* ---------- largura de coluna arrastável (estilo Power BI) ----------
    As larguras ficam por tabela e por índice de coluna, fora do DOM: as tabelas são
@@ -761,47 +774,80 @@ function ligarLarguras(id) {
   });
 }
 
-/* linhas group/leaf: o clique no grupo abre e fecha os empreendimentos */
-function ligarHierarquia(id) {
-  $$(`#${id} tr.group`).forEach(tr => tr.onclick = () => {
-    tr.classList.toggle('open');
-    $$(`#${id} tr.leaf[data-g="${tr.dataset.g}"]`).forEach(l => l.classList.toggle('show', tr.classList.contains('open')));
+/* ---------- tabelas em árvore (2 ou 3 níveis) ----------
+   Cada linha carrega o caminho do nó ('0', '0-2', '0-2-1') e a classe do nível.
+   Uma linha aparece quando todos os seus ancestrais estão abertos — a regra é a
+   mesma para qualquer profundidade, então tipo→incorporadora→empreendimento e
+   incorporadora→empreendimento usam o mesmo código. */
+function linhasArvore(nos, celulas, caminho = []) {
+  let html = '';
+  nos.forEach((no, i) => {
+    const trilha = [...caminho, i], nivel = caminho.length;
+    const cls = 'n' + nivel + ((no.filhos && no.filhos.length) ? ' tem-filhos' : '');
+    const idAttr = no.id != null ? ` data-id="${escapeHtml(String(no.id))}"` : '';
+    html += `<tr class="${cls}" data-path="${trilha.join('-')}"${idAttr}>${celulas(no, nivel)}</tr>`;
+    html += linhasArvore(no.filhos || [], celulas, trilha);
   });
+  return html;
+}
+function ligarArvore(id, aoClicarFolha) {
+  const linhas = $$(`#${id} tr[data-path]`);
+  const porPath = Object.fromEntries(linhas.map(tr => [tr.dataset.path, tr]));
+  const visivel = tr => {
+    const p = tr.dataset.path, corte = p.lastIndexOf('-');
+    if (corte < 0) return true;                      // nível 0 está sempre à vista
+    const pai = porPath[p.slice(0, corte)];
+    return !!pai && pai.classList.contains('open') && visivel(pai);
+  };
+  const atualizar = () => linhas.forEach(tr => tr.classList.toggle('show', visivel(tr)));
+  linhas.forEach(tr => tr.onclick = ev => {
+    ev.stopPropagation();
+    if (tr.classList.contains('tem-filhos')) { tr.classList.toggle('open'); atualizar(); return; }
+    if (aoClicarFolha && tr.dataset.id) aoClicarFolha(tr.dataset.id);
+  });
+  atualizar();
 }
 
-/* ---------- pivot: unidades por tipologia ---------- */
+/* ---------- pivot: unidades por tipologia ----------
+   Hierarquia tipo de empreendimento → incorporadora → empreendimento. */
 function renderPivot() {
   const cols = [...new Set(filtered.flatMap(e => (e.tipologias || []).map(t => String(t.tratada != null ? t.tratada : t.tipologia))))].sort();
-  const groups = {};
-  filtered.forEach(e => { (groups[e.tipo || '—'] = groups[e.tipo || '—'] || []).push(e); });
   const cell = (e, c) => (e.tipologias || []).filter(t => String(t.tratada != null ? t.tratada : t.tipologia) === c).reduce((s, t) => s + (t.unids || 0), 0);
-  const linhas = Object.entries(groups).map(([g, emps]) => {
-    const filhos = emps.map(e => {
-      const vals = Object.fromEntries(cols.map(c => [c, cell(e, c)]));
-      return { nome: e.empreendimento || '—', vals, total: cols.reduce((s, c) => s + vals[c], 0) };
+  const somar = filhos => Object.fromEntries(cols.map(c => [c, filhos.reduce((s, f) => s + f.vals[c], 0)]));
+  const total = vals => cols.reduce((s, c) => s + vals[c], 0);
+  const porTipo = {};
+  filtered.forEach(e => {
+    const t = porTipo[e.tipo || '—'] = porTipo[e.tipo || '—'] || {};
+    (t[e.incorporadora || '—'] = t[e.incorporadora || '—'] || []).push(e);
+  });
+  const linhas = Object.entries(porTipo).map(([tipo, porInc]) => {
+    const filhos = Object.entries(porInc).map(([inc, emps]) => {
+      const netos = emps.map(e => {
+        const vals = Object.fromEntries(cols.map(c => [c, cell(e, c)]));
+        return { nome: e.empreendimento || '—', id: e.id, vals, total: total(vals) };
+      });
+      const vals = somar(netos);
+      return { nome: inc, vals, total: total(vals), filhos: netos };
     });
-    const vals = Object.fromEntries(cols.map(c => [c, filhos.reduce((s, f) => s + f.vals[c], 0)]));
-    return { nome: g, vals, total: cols.reduce((s, c) => s + vals[c], 0), filhos };
+    const vals = somar(filhos);
+    return { nome: tipo, vals, total: total(vals), filhos };
   });
   const valor = (r, k) => k === 'g' ? r.nome : k === 'total' ? r.total : r.vals[k];
-  const ordenadas = ordenarHierarquia(linhas, 'pivotTable', valor);
   const gtot = Object.fromEntries(cols.map(c => [c, linhas.reduce((s, l) => s + l.vals[c], 0)]));
   const gsum = linhas.reduce((s, l) => s + l.total, 0);
+  const ordenadas = ordenarArvore(linhas, 'pivotTable', valor);
   const celula = v => v ? fmtInt(v) : '·';
-  let html = cabecalhoOrdenavel('pivotTable', [
-    { k: 'g', label: 'TIPO / EMPREENDIMENTO' },
+  const celulas = (n, nivel) => `<td>${escapeHtml(n.nome)}</td>`
+    + cols.map(c => `<td>${celula(n.vals[c])}</td>`).join('')
+    + `<td>${nivel === 0 ? `<b>${fmtInt(n.total)}</b>` : fmtInt(n.total)}</td>`;
+  const html = cabecalhoOrdenavel('pivotTable', [
+    { k: 'g', label: 'TIPO / INCORPORADORA / EMPREENDIMENTO' },
     ...cols.map(c => ({ k: c, label: escapeHtml(rotuloTipologia(c)), num: true })),
     { k: 'total', label: 'TOTAL', num: true },
-  ]) + '<tbody>';
-  ordenadas.forEach((l, gi) => {
-    html += `<tr class="group" data-g="${gi}"><td>${escapeHtml(l.nome)}</td>${cols.map(c => `<td>${celula(l.vals[c])}</td>`).join('')}<td><b>${fmtInt(l.total)}</b></td></tr>`;
-    l.filhos.forEach(f => {
-      html += `<tr class="leaf" data-g="${gi}"><td>${escapeHtml(f.nome)}</td>${cols.map(c => `<td>${celula(f.vals[c])}</td>`).join('')}<td>${fmtInt(f.total)}</td></tr>`;
-    });
-  });
-  html += `<tr class="total"><td>TOTAL GERAL</td>${cols.map(c => `<td>${fmtInt(gtot[c])}</td>`).join('')}<td>${fmtInt(gsum)}</td></tr></tbody>`;
+  ]) + '<tbody>' + linhasArvore(ordenadas, celulas)
+    + `<tr class="total"><td>TOTAL GERAL</td>${cols.map(c => `<td>${fmtInt(gtot[c])}</td>`).join('')}<td>${fmtInt(gsum)}</td></tr></tbody>`;
   $('#pivotTable').innerHTML = html;
-  ligarHierarquia('pivotTable');
+  ligarArvore('pivotTable', locateOnMap);
   ligarOrdenacao('pivotTable', renderPivot);
   ligarLarguras('pivotTable');
 }
@@ -861,6 +907,12 @@ function fillFicha(e) {
   $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : e.semData ? '<span class="badge badge--red" style="background:#8A93A6">SEM PREVISÃO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
     + (e.projetoProtocolado ? '<span class="badge badge--outline">PROJETO</span>' : '');
   $('#fInc').textContent = e.incorporadora || '—';
+  /* a data de lançamento do cadastro é sempre mês/ano (o pipeline fixa o dia 1);
+     mostrar "01/03/2026" prometeria um dia que a fonte não tem */
+  const ml = (e.dtLancamento || '').slice(0, 7);
+  $('#fDtLanc').textContent = ml ? ml.slice(5, 7) + '/' + ml.slice(0, 4) : '—';
+  $('#fTotalUnids').textContent = e.totalUnidades != null ? fmtInt(e.totalUnidades) : '—';
+  $('#fAreaTerreno').textContent = e.areaTerreno != null ? fmtInt(e.areaTerreno) + ' m²' : '—';
   // campo vazio é campo vazio: não inventar fonte (aqui havia um 'PROJETO' fixo)
   $('#fFonteTip').textContent = e.fonteTipologia || '—';
   $('#fFonteLan').textContent = e.fonteDataLancamento || '—';
@@ -904,84 +956,6 @@ document.addEventListener('keydown', e => {
   if (cardExpandido) { alternarExpansao(cardExpandido, cardExpandido.__btn); return; }
   fecharFicha(); setAIChatOpen(false); fecharDock();
 });
-
-/* ---------- importação Excel ---------- */
-function num(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
-function cleanCell(v) {
-  if (v == null) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const s = String(v).replace(/_x000D_/g, '').trim();
-  return (s === '' || s === '-' || s === 'nan') ? null : s;
-}
-function ymOf(v) {
-  if (v instanceof Date) return v.toISOString().slice(0, 7);
-  const s = cleanCell(v); return s ? s.slice(0, 7) : null;
-}
-function rebuildFromRows(rows, fileName) {
-  const emps = {}, tipsSeen = {}, mensal = {}, hist = {};
-  rows.forEach(r => {
-    const eid = r['id_empreendimento'];
-    if (eid == null || eid === '') {
-      const hname = cleanCell(r['empreendimento']); const m = ymOf(r['data']);
-      if (!hname || !m) return;
-      const h = hist[hname] = hist[hname] || { empreendimento: hname, cluster: cleanCell(r['cluster']), bairro: cleanCell(r['bairro']), tipo: cleanCell(r['TipoEmpreendimento']), macrozona: cleanCell(r['macrozona']), dtLancamento: cleanCell(r['dtlançamento'] ?? r['dtlancamento']), vendMap: {}, minM: m, maxM: m };
-      if (m < h.minM) h.minM = m; if (m > h.maxM) h.maxM = m;
-      const v = num(r['unidadesvendidasmes']) || 0;
-      if (v) h.vendMap[m] = (h.vendMap[m] || 0) + v;
-      return;
-    }
-    const id = String(eid);
-    if (!emps[id]) emps[id] = {
-      id, empreendimento: cleanCell(r['empreendimento']), cidade: cleanCell(r['cidade']), uf: cleanCell(r['Cidade.Uf']),
-      bairro: cleanCell(r['bairro']), incorporadora: cleanCell(r['incorporadora']), incorpOUconsorcio: cleanCell(r['incorpOUconsorcio']),
-      tipo: cleanCell(r['TipoEmpreendimento']), macrozona: cleanCell(r['macrozona']), lat: num(r['Latitude']), lng: num(r['Longitude']),
-      logradouro: cleanCell(r['Logradouro']), complemento: cleanCell(r['Complemento']), areaTerreno: num(r['AreaTerreno']),
-      totalUnidades: num(r['TotalUnidades']), dtLancamento: cleanCell(r['dtlançamento'] ?? r['dtlancamento']), descPavimentos: cleanCell(r['descPavimentos']),
-      mcmv: cleanCell(r['MCMV']), terrenoTapumado: !!r['TerrenoTapumado'], projetoProtocolado: !!r['ProjetoProtocolado'], projetoAprovado: !!r['ProjetoAprovado'],
-      idProtocolo: cleanCell(r['IdProtocoloProjeto']), dataProtocolo: cleanCell(r['DataProtocoloProjeto']), dataAprovacao: cleanCell(r['DataAprovacao']),
-      linkProjeto: cleanCell(r['LinkDoProjeto']), linkPortal: cleanCell(r['LinkPortal']),
-      fonteEmpreendimento: cleanCell(r['FonteEmpreendimento']), fonteDataLancamento: cleanCell(r['FonteDataLancamento']),
-      fonteTipologia: cleanCell(r['FonteTipologia']), fontePrevisao: cleanCell(r['FonteDataPrevisaoLancamento']),
-      cluster: cleanCell(r['cluster']), consideracaoOF: cleanCell(r['consideracao_OF']), lancamento: cleanCell(r['lancamento']),
-      tipologias: [], mensal: [],
-    };
-    const tk = id + '|' + r['id_tipologia'];
-    if (!tipsSeen[tk]) { tipsSeen[tk] = 1; emps[id].tipologias.push({ tipologia: cleanCell(r['tipologia']), tratada: r['tipologia_tratada'] ?? null, unids: num(r['Unids_tipologia']) || 0, area: num(r['AreaPrivativa']) }); }
-    const m = ymOf(r['data']);
-    if (m) {
-      const mm = mensal[id] = mensal[id] || {};
-      const cel = mm[m] = mm[m] || { m, disp: 0, vend: 0, distr: 0 };
-      cel.disp += num(r['unidadesdisponiveis']) || 0;
-      cel.vend += num(r['unidadesvendidasmes']) || 0;
-      cel.distr += num(r['unidadesdistratadasmes']) || 0;
-    }
-  });
-  Object.entries(mensal).forEach(([id, mm]) => { emps[id].mensal = Object.values(mm).sort((a, b) => a.m.localeCompare(b.m)); });
-  const historico = Object.values(hist).map(h => ({ empreendimento: h.empreendimento, cluster: h.cluster, bairro: h.bairro, tipo: h.tipo, macrozona: h.macrozona, dtLancamento: h.dtLancamento, minM: h.minM, maxM: h.maxM, vend: Object.entries(h.vendMap).sort((a, b) => a[0].localeCompare(b[0])) }));
-  return { geradoEm: new Date().toISOString().slice(0, 10), fonte: fileName, empreendimentos: Object.values(emps), historico };
-}
-function importXlsx(file) {
-  const st = $('#importStatus');
-  st.textContent = 'LENDO ' + file.name.toUpperCase() + '…';
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const wb = XLSX.read(ev.target.result, { type: 'array', cellDates: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
-      if (!rows.length) throw new Error('planilha vazia');
-      DATA = rebuildFromRows(rows, file.name);
-      linkKmzFeatures();
-      buildFilters(); Object.keys(state).forEach(k => state[k] instanceof Set && state[k].clear());
-      applyAll();
-      st.textContent = `BASE ATUALIZADA · ${DATA.empreendimentos.length} EMPREENDIMENTOS · ${rows.length.toLocaleString('pt-BR')} LINHAS`;
-    } catch (err) {
-      console.error(err);
-      st.textContent = 'ERRO AO IMPORTAR: ' + err.message;
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
 
 /* ---------- importação KMZ ---------- */
 function kmlColor(c) { return (c && c.length === 8) ? '#' + c.slice(6, 8) + c.slice(4, 6) + c.slice(2, 4) : null; }
@@ -1041,9 +1015,7 @@ async function importKmz(file) {
     st.textContent = 'ERRO AO IMPORTAR KMZ: ' + err.message;
   }
 }
-$('#btnImportXlsx').onclick = () => $('#fileXlsx').click();
 $('#btnImportKmz').onclick = () => $('#fileKmz').click();
-$('#fileXlsx').onchange = e => { if (e.target.files[0]) importXlsx(e.target.files[0]); e.target.value = ''; };
 $('#fileKmz').onchange = e => { if (e.target.files[0]) importKmz(e.target.files[0]); e.target.value = ''; };
 
 /* ---------- exportação PDF ---------- */
@@ -1086,7 +1058,6 @@ async function exportPdf() {
         <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
         <div class="k"><span>ÁREA DE TERRENO M²</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></div>
         <div class="k accent"><span>MÉDIA MENSAL VENDAS</span><b>${m.avg == null ? '—' : fmtDec(m.avg, 1)}</b></div>
-        <div class="k"><span>MÉDIA MENSAL DEFL.</span><b>${m.defl == null ? '—' : fmtDec(m.defl, 1)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div><p class="mono" style="font-size:10px;letter-spacing:.14em;color:${GRAY};margin-bottom:8px">OFERTA DISPONÍVEL POR MÊS</p><img class="pdf-img" src="${chartDisp.toBase64Image('image/png', 1)}" /></div>
@@ -1604,11 +1575,51 @@ function setAIChatOpen(open) {
   if (fab) { fab.setAttribute('aria-expanded', open ? 'true' : 'false'); fab.setAttribute('aria-label', open ? 'Fechar chat' : 'Abrir chat'); }
   if (open) setTimeout(() => $('#aiQuestion')?.focus(), 120);
 }
+/* markdown mínimo do que os modelos realmente devolvem: negrito, itálico, código e
+   listas. Escapa antes de formatar — a resposta vem de fora e vai para innerHTML. */
+const COPIAR_SVG = '<svg viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M15 5.5A1.5 1.5 0 0 0 13.5 4H6a2 2 0 0 0-2 2v7.5A1.5 1.5 0 0 0 5.5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+function mdParaHtml(texto) {
+  return escapeHtml(texto)
+    .replace(/```[\w]*\n?([\s\S]*?)```/g, (m, c) => `<pre>${c.replace(/\n$/, '')}</pre>`)
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/^\s*[-*]\s+/gm, '• ');
+}
+async function copiarTexto(t) {
+  try { await navigator.clipboard.writeText(t); return true; }
+  catch (e) {
+    // clipboard API só existe em contexto seguro; no file:// cai no caminho antigo
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}
 function appendAIMessage(role, text) {
   const box = $('#aiMessages'); if (!box) return;
   const div = document.createElement('div');
   div.className = 'ai-msg ' + (role === 'user' ? 'ai-user' : 'ai-bot');
-  div.textContent = text;
+  const corpo = document.createElement('div');
+  corpo.className = 'ai-msg__body';
+  div.appendChild(corpo);
+  const copiar = document.createElement('button');
+  copiar.type = 'button'; copiar.className = 'ai-copy';
+  copiar.title = 'Copiar'; copiar.setAttribute('aria-label', 'Copiar mensagem');
+  copiar.innerHTML = COPIAR_SVG;
+  copiar.onclick = async ev => {
+    ev.stopPropagation();
+    copiar.classList.toggle('ok', await copiarTexto(div.__texto || ''));
+    copiar.title = copiar.classList.contains('ok') ? 'Copiado' : 'Não consegui copiar';
+    setTimeout(() => { copiar.classList.remove('ok'); copiar.title = 'Copiar'; }, 1600);
+  };
+  div.appendChild(copiar);
+  /* o texto do bot é reescrito enquanto a resposta anda ("consultando o banco…"),
+     então a mensagem guarda o cru para o botão de copiar e reformata a cada troca */
+  div.__setText = t => { div.__texto = t; corpo.innerHTML = mdParaHtml(t); box.scrollTop = box.scrollHeight; };
+  div.__setText(text);
   box.appendChild(div); box.scrollTop = box.scrollHeight;
   return div;
 }
@@ -1679,7 +1690,7 @@ async function askAI() {
       const out = await callAIProvider(messages);
       const sql = extractSQL(out);
       if (!sql || round === 3) { answer = (out || '').replace(/```sql[\s\S]*?```/gi, '').trim() || answer; break; }
-      loading.textContent = 'Consultando o banco de dados…';
+      loading.__setText('Consultando o banco de dados…');
       messages.push({ role: 'assistant', content: out });
       let feedback;
       try {
@@ -1687,11 +1698,11 @@ async function askAI() {
         feedback = `Resultado da consulta (${r.rowCount} linhas${r.truncated ? ', truncado em 200 — agregue mais' : ''}):\n${JSON.stringify(r.rows).slice(0, 24000)}`;
       } catch (err) { feedback = 'Erro na consulta: ' + err.message + '\nCorrija o SQL e tente de novo.'; }
       messages.push({ role: 'user', content: feedback + '\n\nAgora responda ao usuário (ou envie outro bloco ```sql``` se precisar de mais dados).' });
-      loading.textContent = 'Interpretando os dados…';
+      loading.__setText('Interpretando os dados…');
     }
-    loading.textContent = answer;
+    loading.__setText(answer);
   }
-  catch (err) { console.error(err); loading.textContent = 'Não consegui responder: ' + err.message; }
+  catch (err) { console.error(err); loading.__setText('Não consegui responder: ' + err.message); }
   finally { btn.disabled = false; input.focus(); }
 }
 function initAIChat() {
@@ -1912,16 +1923,16 @@ function statsIncorporadoras(emps) {
     a.filhos.push({
       nome: e.empreendimento || '—', id: e.id, projetos: 1, unidades: e.totalUnidades || 0,
       protocolo: emProtocolo ? 1 : 0, aprovados: aprovado ? 1 : 0, lancados: lancado ? 1 : 0,
-      medianaAprov: prazo, mediaAprov: prazo, amostra: prazo != null ? 1 : null,
+      medianaAprov: prazo, mediaAprov: prazo,
     });
   });
   return Object.values(acc).map(a => ({
-    ...a, medianaAprov: mediana(a.prazos), mediaAprov: media(a.prazos), amostra: a.prazos.length || null,
+    ...a, medianaAprov: mediana(a.prazos), mediaAprov: media(a.prazos),
   }));
 }
 function renderIncorporadoras() {
   const alvo = $('#incTable'); if (!alvo) return;
-  const linhas = ordenarHierarquia(statsIncorporadoras(baseIncorporadoras()), 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
+  const linhas = ordenarArvore(statsIncorporadoras(baseIncorporadoras()), 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
   const meses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
   const marca = v => v ? `<b>${v}</b>` : '·';
   const tot = linhas.reduce((s, l) => ({
@@ -1939,48 +1950,28 @@ function renderIncorporadoras() {
     { k: 'protocolo', label: 'EM PROTOCOLO', num: true }, { k: 'aprovados', label: 'APROVADOS', num: true },
     { k: 'lancados', label: 'LANÇADOS', num: true },
     { k: 'medianaAprov', label: 'APROV. MEDIANA', num: true }, { k: 'mediaAprov', label: 'APROV. MÉDIA', num: true },
-    { k: 'amostra', label: 'AMOSTRA', num: true },
   ];
-  let html = cabecalhoOrdenavel('incTable', cols) + '<tbody>';
-  linhas.forEach((l, gi) => {
-    html += `<tr class="group" data-g="${gi}">
+  const celulas = (l, nivel) => `
       <td>${escapeHtml(l.nome)}</td>
-      <td class="num">${fmtInt(l.projetos)}</td>
+      <td class="num">${nivel ? '·' : fmtInt(l.projetos)}</td>
       <td class="num">${fmtInt(l.unidades)}</td>
-      <td class="num">${l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>'}</td>
-      <td class="num">${l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>'}</td>
-      <td class="num">${fmtInt(l.lancados)}</td>
+      <td class="num">${nivel ? marca(l.protocolo) : (l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>')}</td>
+      <td class="num">${nivel ? marca(l.aprovados) : (l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>')}</td>
+      <td class="num">${nivel ? marca(l.lancados) : fmtInt(l.lancados)}</td>
       <td class="num">${meses(l.medianaAprov)}</td>
-      <td class="num">${meses(l.mediaAprov)}</td>
-      <td class="num">${l.amostra || '—'}</td>
-    </tr>`;
-    l.filhos.forEach(f => {
-      html += `<tr class="leaf" data-g="${gi}" data-id="${escapeHtml(String(f.id ?? ''))}">
-        <td>${escapeHtml(f.nome)}</td>
-        <td class="num">·</td>
-        <td class="num">${fmtInt(f.unidades)}</td>
-        <td class="num">${marca(f.protocolo)}</td>
-        <td class="num">${marca(f.aprovados)}</td>
-        <td class="num">${marca(f.lancados)}</td>
-        <td class="num">${meses(f.medianaAprov)}</td>
-        <td class="num">${meses(f.mediaAprov)}</td>
-        <td class="num">${f.amostra || '—'}</td>
-      </tr>`;
-    });
-  });
-  html += `<tr class="tot-row">
+      <td class="num">${meses(l.mediaAprov)}</td>`;
+  const html = cabecalhoOrdenavel('incTable', cols) + '<tbody>' + linhasArvore(linhas, celulas)
+    + `<tr class="tot-row">
       <td>TOTAL · ${linhas.length} incorporadoras</td>
       <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
       <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
       <td class="num">${fmtInt(tot.lancados)}</td>
       <td class="num">${meses(mediana(tot.prazos))}</td><td class="num">${meses(media(tot.prazos))}</td>
-      <td class="num">${tot.prazos.length || '—'}</td>
     </tr></tbody>`;
   alvo.innerHTML = html;
-  ligarHierarquia('incTable');
+  ligarArvore('incTable', locateOnMap);
   ligarOrdenacao('incTable', renderIncorporadoras);
   ligarLarguras('incTable');
-  $$('#incTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
 /* ---------- concentração por bairro / macrozona ---------- */
@@ -1990,64 +1981,55 @@ function renderConcentracao() {
   const chave = e => concMode === 'macrozona' ? mzLabel(e.macrozona) : (e.bairro || '—');
   const acc = {};
   filtered.forEach(e => {
-    const k = chave(e);
-    const a = acc[k] = acc[k] || { k, emps: 0, unidades: 0, area: 0, incs: new Set(), areas: [], itens: [] };
-    a.itens.push(e);
-    a.emps += 1;
-    a.unidades += e.totalUnidades || 0;
-    a.area += e.areaTerreno || 0;
-    if (e.incorporadora) a.incs.add(e.incorporadora);
-    (e.tipologias || []).forEach(t => { if (t.area != null && t.unids) a.areas.push([t.area, t.unids]); });
+    const g = acc[chave(e)] = acc[chave(e)] || {};
+    (g[e.incorporadora || '—'] = g[e.incorporadora || '—'] || []).push(e);
   });
   const areaMedia = areas => {
     const u = areas.reduce((s, [, n]) => s + n, 0);
     return u ? areas.reduce((s, [a, n]) => s + a * n, 0) / u : null;
   };
-  const totUn = Object.values(acc).reduce((s, l) => s + l.unidades, 0) || 1;
-  const linhasBrutas = Object.values(acc).map(l => ({
-    nome: l.k, emps: l.emps, unidades: l.unidades, pct: l.unidades * 100 / totUn,
-    incs: l.incs.size, m2: areaMedia(l.areas), area: l.area,
-    filhos: l.itens.map(e => ({
-      nome: e.empreendimento || '—', id: e.id, emps: null, unidades: e.totalUnidades || 0,
-      pct: (e.totalUnidades || 0) * 100 / totUn, incs: e.incorporadora || null,
-      m2: areaMedia((e.tipologias || []).filter(t => t.area != null && t.unids).map(t => [t.area, t.unids])),
-      area: e.areaTerreno || 0,
-    })),
-  }));
-  const linhas = ordenarHierarquia(linhasBrutas, 'concTable', (r, k) => r[k]);
+  /* m² médio é ponderado pelas unidades de cada tipologia — a média das médias
+     dos empreendimentos daria outro número */
+  const tiposDe = emps => emps.flatMap(e => (e.tipologias || []).filter(t => t.area != null && t.unids).map(t => [t.area, t.unids]));
+  const somaUn = emps => emps.reduce((s, e) => s + (e.totalUnidades || 0), 0);
+  const somaArea = emps => emps.reduce((s, e) => s + (e.areaTerreno || 0), 0);
+  const totUn = somaUn(filtered) || 1;
+  const linhasBrutas = Object.entries(acc).map(([k, porInc]) => {
+    const todos = Object.values(porInc).flat();
+    return {
+      nome: k, emps: todos.length, unidades: somaUn(todos), pct: somaUn(todos) * 100 / totUn,
+      incs: Object.keys(porInc).filter(i => i !== '—').length, m2: areaMedia(tiposDe(todos)), area: somaArea(todos),
+      filhos: Object.entries(porInc).map(([inc, emps]) => ({
+        nome: inc, emps: emps.length, unidades: somaUn(emps), pct: somaUn(emps) * 100 / totUn,
+        incs: null, m2: areaMedia(tiposDe(emps)), area: somaArea(emps),
+        filhos: emps.map(e => ({
+          nome: e.empreendimento || '—', id: e.id, emps: null, unidades: e.totalUnidades || 0,
+          pct: (e.totalUnidades || 0) * 100 / totUn, incs: null,
+          m2: areaMedia(tiposDe([e])), area: e.areaTerreno || 0,
+        })),
+      })),
+    };
+  });
   const maior = Math.max(...linhasBrutas.map(l => l.unidades), 1);
+  const linhas = ordenarArvore(linhasBrutas, 'concTable', (r, k) => r[k]);
   const pct = v => v.toFixed(1).replace('.', ',') + '%';
   const barra = v => `<td class="conc-bar"><i style="width:${Math.max(2, Math.min(100, v * 100 / maior))}%"></i></td>`;
-  let html = cabecalhoOrdenavel('concTable', [
-    { k: 'nome', label: (concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO') + ' / EMPREENDIMENTO' },
+  const celulas = (l, nivel) => `
+      <td>${escapeHtml(l.nome)}</td>
+      <td class="num">${l.emps == null ? '·' : fmtInt(l.emps)}</td>
+      <td class="num">${fmtInt(l.unidades)}</td>
+      <td class="num">${pct(l.pct)}</td>${barra(l.unidades)}
+      <td class="num">${nivel ? '·' : fmtInt(l.incs)}</td>
+      <td class="num">${l.m2 == null ? '—' : fmtDec(l.m2, 0)}</td>
+      <td class="num">${fmtInt(l.area)}</td>`;
+  const html = cabecalhoOrdenavel('concTable', [
+    { k: 'nome', label: (concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO') + ' / INCORPORADORA / EMPREENDIMENTO' },
     { k: 'emps', label: 'EMPREEND.', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
     { k: 'pct', label: '% DO TOTAL', num: true }, { label: 'PARTICIPAÇÃO', fixa: true },
     { k: 'incs', label: 'INCORPORADORAS', num: true }, { k: 'm2', label: 'M² MÉDIO', num: true },
     { k: 'area', label: 'M² TERRENO', num: true },
-  ]) + '<tbody>';
-  linhas.forEach((l, gi) => {
-    html += `<tr class="group" data-g="${gi}">
-      <td>${escapeHtml(l.nome)}</td>
-      <td class="num">${fmtInt(l.emps)}</td>
-      <td class="num">${fmtInt(l.unidades)}</td>
-      <td class="num">${pct(l.pct)}</td>${barra(l.unidades)}
-      <td class="num">${fmtInt(l.incs)}</td>
-      <td class="num">${l.m2 == null ? '—' : fmtDec(l.m2, 0)}</td>
-      <td class="num">${fmtInt(l.area)}</td>
-    </tr>`;
-    l.filhos.forEach(f => {
-      html += `<tr class="leaf" data-g="${gi}" data-id="${escapeHtml(String(f.id ?? ''))}">
-        <td>${escapeHtml(f.nome)}</td>
-        <td class="num">·</td>
-        <td class="num">${fmtInt(f.unidades)}</td>
-        <td class="num">${pct(f.pct)}</td>${barra(f.unidades)}
-        <td class="cell-txt">${escapeHtml(f.incs || '—')}</td>
-        <td class="num">${f.m2 == null ? '—' : fmtDec(f.m2, 0)}</td>
-        <td class="num">${fmtInt(f.area)}</td>
-      </tr>`;
-    });
-  });
-  html += `<tr class="tot-row">
+  ]) + '<tbody>' + linhasArvore(linhas, celulas)
+    + `<tr class="tot-row">
       <td>TOTAL · ${linhas.length} ${concMode === 'macrozona' ? 'macrozonas' : 'bairros'}</td>
       <td class="num">${fmtInt(filtered.length)}</td>
       <td class="num">${fmtInt(totUn)}</td>
@@ -2057,10 +2039,9 @@ function renderConcentracao() {
       <td class="num">${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</td>
     </tr></tbody>`;
   alvo.innerHTML = html;
-  ligarHierarquia('concTable');
+  ligarArvore('concTable', locateOnMap);
   ligarOrdenacao('concTable', renderConcentracao);
   ligarLarguras('concTable');
-  $$('#concTable tr.leaf[data-id]').forEach(tr => tr.onclick = ev => { ev.stopPropagation(); locateOnMap(tr.dataset.id); });
 }
 
 /* ---------- configurações (dock flutuante, padrão leadsebm) ---------- */

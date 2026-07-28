@@ -136,7 +136,14 @@ button{font-family:inherit}
 
 /* gráficos */
 .chart-box{position:relative;height:250px}
-.chart-box--sm{height:170px}
+.chart-box--sm{height:210px}
+/* o card dos gráficos é esticado pelo grid até a altura do mapa. Sem isto a sobra
+   vira espaço vazio embaixo; com flex, o último gráfico ocupa o que sobrar. */
+.duo>.card{display:flex;flex-direction:column}
+.duo>.card>.chart-box:last-child{flex:1 1 auto}
+.duo>.card>#map{flex:0 0 auto}
+/* em tela cheia cada gráfico tem altura própria — não esticar */
+.card-expanded>.chart-box{flex:0 0 auto}
 
 /* ---------- pivot ---------- */
 .table-scroll{overflow-x:auto}
@@ -153,15 +160,18 @@ table.col-fixa{table-layout:fixed}
 table.col-fixa td,table.col-fixa th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pivot td{padding:8px 12px;border-bottom:1px solid var(--hair);text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--ink)}
 .pivot td:first-child{text-align:left;font-family:var(--font-body)}
-.pivot tr.group td{background:var(--paper);font-weight:600;color:var(--navy);cursor:pointer}
-.pivot tr.group td:first-child::before{content:"▸ ";color:var(--red)}
-.pivot tr.group.open td:first-child::before{content:"▾ "}
-.pivot tr.leaf td:first-child{padding-left:26px;color:var(--gray-600)}
+/* árvore de 2 ou 3 níveis: n0 = grupo, n1 = subgrupo, n2 = empreendimento.
+   Só quem tem filhos ganha seta e cursor de clique. */
+.pivot tr.n0 td{background:var(--paper);font-weight:600;color:var(--navy)}
+.pivot tr.n1 td{color:var(--navy-500)}
+.pivot tr.n1 td:first-child{padding-left:26px;font-weight:500}
+.pivot tr.n2 td:first-child{padding-left:46px;color:var(--gray-600)}
+.pivot tr.tem-filhos td{cursor:pointer}
+.pivot tr.tem-filhos td:first-child::before{content:"▸ ";color:var(--red)}
+.pivot tr.tem-filhos.open td:first-child::before{content:"▾ "}
+.pivot tr.n1,.pivot tr.n2{display:none}
+.pivot tr.n1.show,.pivot tr.n2.show{display:table-row}
 .pivot tr.total td{background:var(--navy);color:#fff;font-weight:600;border-bottom:0}
-.pivot tr.leaf{display:none}
-.pivot tr.leaf.show{display:table-row}
-/* célula de texto numa coluna numérica (ex.: incorporadora na linha do empreendimento) */
-.pivot td.cell-txt{text-align:left;font-family:var(--font-body);font-size:11.5px;color:var(--gray-600);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------- radar (tabela redesign) ---------- */
 .radar{padding-bottom:8px}
@@ -232,7 +242,7 @@ tr:hover .rt-name{color:var(--red)}
 .ficha__source{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--navy);color:#fff;border-radius:9px;padding:12px 16px;margin-top:16px}
 .ficha__source span{font-size:9.5px;letter-spacing:.14em;color:#AEBFDE}
 .ficha__source b{font-family:var(--font-display);font-size:13px;font-weight:600;text-align:right}
-.ficha__foot{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--hair);padding:12px 26px;font-size:10.5px;color:var(--gray-400)}
+.ficha__foot{display:flex;justify-content:flex-end;gap:14px;border-top:1px solid var(--hair);padding:12px 26px;font-size:10.5px;color:var(--gray-400)}
 
 /* ---------- lápis de edição (leadsebm) ---------- */
 .editable-wrap{display:inline-flex;align-items:center;gap:5px;max-width:100%;vertical-align:baseline}
@@ -298,7 +308,19 @@ tr:hover .rt-name{color:var(--red)}
 .ai-chat.is-open .chat-popover{opacity:1;transform:none;pointer-events:auto}
 .chat-log{display:flex;flex-direction:column;gap:8px;max-height:min(320px,calc(100vh - 190px));overflow:auto}
 .chat-log:empty{display:none}
-.chat-log .ai-msg{max-width:100%;font-size:12.5px;padding:10px 12px;box-shadow:0 12px 30px rgba(12,31,85,.16);white-space:pre-wrap}
+.chat-log .ai-msg{position:relative;max-width:100%;font-size:12.5px;padding:10px 30px 10px 12px;box-shadow:0 12px 30px rgba(12,31,85,.16)}
+.ai-msg__body{white-space:pre-wrap;overflow-wrap:anywhere}
+.ai-msg__body strong{font-weight:700}
+.ai-msg__body code{font-family:var(--font-mono);font-size:11.5px;background:rgba(12,31,85,.08);border-radius:4px;padding:1px 4px}
+.ai-msg__body pre{white-space:pre-wrap;font-family:var(--font-mono);font-size:11px;background:rgba(12,31,85,.07);border-radius:7px;padding:8px 10px;margin:6px 0}
+.ai-user .ai-msg__body code,.ai-user .ai-msg__body pre{background:rgba(255,255,255,.18)}
+/* botão de copiar: discreto, aparece de leve e firma no hover da mensagem */
+.ai-copy{position:absolute;top:6px;right:6px;width:22px;height:22px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:inherit;opacity:.32;cursor:pointer;transition:opacity .15s ease,background .15s ease}
+.ai-copy svg{width:13px;height:13px}
+.ai-msg:hover .ai-copy{opacity:.8}
+.ai-copy:hover{opacity:1;background:rgba(12,31,85,.09)}
+.ai-user .ai-copy:hover{background:rgba(255,255,255,.2)}
+.ai-copy.ok{opacity:1;color:var(--red)}
 .chat-log .ai-bot{background:rgba(255,255,255,.96);color:var(--navy);border:1px solid rgba(174,191,222,.52);border-radius:16px 16px 16px 5px}
 .chat-log .ai-user{align-self:flex-end;color:#fff;background:linear-gradient(135deg,var(--navy-500),var(--navy));border-radius:16px 16px 5px 16px}
 .ai-key-panel{display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:9px;padding:13px;border-radius:14px;background:rgba(255,255,255,.97);border:1px solid rgba(174,191,222,.52);box-shadow:0 18px 44px rgba(12,31,85,.14);backdrop-filter:blur(18px)}

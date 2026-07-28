@@ -15,6 +15,10 @@ on:
       fator_ajuste:
         description: "Fator multiplicador da curva"
         default: "1.0"
+      ignorar_queda:
+        description: "Publicar mesmo com queda >10% de empreendimentos (use ao estreitar a janela de propósito)"
+        type: boolean
+        default: false
   schedule:
     # Todo dia 30 às 06:00 de Brasília (09:00 UTC); fevereiro não tem dia 30 — rodar manualmente se precisar
     - cron: "0 9 30 * *"
@@ -51,6 +55,8 @@ jobs:
           OF_LANCTO_FIM: ${{ github.event.inputs.of_lancto_fim || '12/2027' }}
           DATA_FIM_PROJ: ${{ github.event.inputs.data_fim_proj || '06/2027' }}
           FATOR_AJUSTE: ${{ github.event.inputs.fator_ajuste || '1.0' }}
+          # escape da guarda de sanidade; o agendamento nunca ignora a queda
+          OF_IGNORAR_QUEDA: ${{ github.event.inputs.ignorar_queda == 'true' && '1' || '0' }}
         run: python scripts/pipeline_of.py
 
       - name: Commitar dados atualizados

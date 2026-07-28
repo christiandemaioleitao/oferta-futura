@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20260727-1647" />
+<link rel="stylesheet" href="css/style.css?v=20260728-1" />
 </head>
 <body>
 
@@ -36,16 +36,12 @@
   <!-- ================= AÇÕES / IMPORTAÇÃO ================= -->
   <section class="actionbar">
     <div class="actionbar__left">
-      <button class="btn btn-soft" id="btnImportXlsx" type="button" title="Importar base Excel (Projecao_OF.xlsx)">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 12-4-4m4 4 4-4M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Importar Excel
-      </button>
+      <!-- a base vem do banco pelo pipeline; só o mapa ainda aceita carga manual -->
       <button class="btn btn-soft" id="btnImportKmz" type="button" title="Importar mapa georreferenciado (.kmz)">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" stroke="currentColor" stroke-width="2"/></svg>
         Importar KMZ
       </button>
       <span class="import-status mono" id="importStatus"></span>
-      <input type="file" id="fileXlsx" accept=".xlsx,.xlsm,.csv" hidden />
       <input type="file" id="fileKmz" accept=".kmz,.kml" hidden />
     </div>
     <div class="actionbar__right">
@@ -89,7 +85,6 @@
     <div class="kpi"><span class="mono">EMPREENDIMENTOS</span><b id="kpiCount">—</b><small>projetos monitorados</small></div>
     <div class="kpi"><span class="mono">TOTAL DE UNIDADES</span><b id="kpiUnits">—</b><small>oferta futura projetada</small></div>
     <div class="kpi kpi--accent"><span class="mono">MÉDIA MENSAL VENDAS</span><b id="kpiAvgSales">—</b><small>mercado · clusters filtrados</small></div>
-    <div class="kpi"><span class="mono">MÉDIA MENSAL DEFL.</span><b id="kpiAvgSalesDefl">—</b><small>excluindo 3 meses de lançamento</small></div>
   </section>
 
   <!-- ================= MAPA + GRÁFICO ================= -->
@@ -229,6 +224,9 @@
       <div class="ficha__sec mono">01 · ORIGEM E PRODUTO</div>
       <div class="ficha__pairs">
         <div><span class="mono">INCORPORADORA</span><b id="fInc">—</b></div>
+        <div><span class="mono">DATA PREVISTA DE LANÇAMENTO</span><b id="fDtLanc">—</b></div>
+        <div><span class="mono">TOTAL DE UNIDADES</span><b id="fTotalUnids">—</b></div>
+        <div><span class="mono">ÁREA DO TERRENO</span><b id="fAreaTerreno">—</b></div>
         <div><span class="mono">FONTE DA TIPOLOGIA</span><b id="fFonteTip">—</b></div>
         <div><span class="mono">FONTE DA DATA DE LANÇAMENTO</span><b id="fFonteLan">—</b></div>
         <div><span class="mono">FONTE DA PREVISÃO</span><b id="fFontePrev">—</b></div>
@@ -252,7 +250,7 @@
       <div class="ficha__source"><span class="mono">FONTE DO EMPREENDIMENTO</span><b id="fFonteEmp">—</b></div>
     </div>
   </div>
-  <div class="ficha__foot mono"><span data-editable>EBM Inteligência · Dados que orientam decisões</span><span id="fUpdated"></span></div>
+  <div class="ficha__foot mono"><span id="fUpdated"></span></div>
 </div>
 
 <!-- ================= CONFIGURAÇÕES (dock flutuante) ================= -->
@@ -300,17 +298,17 @@
 <div id="pdfStage" aria-hidden="true"></div>
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
-<script src="data/dados_of.js?v=20260727-1647"></script>
-<script src="data/mapa_of.js?v=20260727-1647"></script>
-<script src="data/bairros_of.js?v=20260727-1647"></script>
+<script src="data/dados_of.js?v=20260728-1"></script>
+<script src="data/mapa_of.js?v=20260728-1"></script>
+<script src="data/bairros_of.js?v=20260728-1"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
-<script src="data/plano_diretor.js?v=20260727-1647"></script>
+<script src="data/plano_diretor.js?v=20260728-1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20260727-1647"></script>
+<script src="js/app.js?v=20260728-1"></script>
 </body>
 </html>

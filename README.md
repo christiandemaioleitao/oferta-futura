@@ -231,7 +231,17 @@ Firefox e Safari não implementam o campo: ele cai para texto, o valor nunca che
 
 Toda tabela ordena pelo cabeçalho: coluna de texto começa em A→Z, coluna numérica começa do maior (padrão de BI), e o segundo clique inverte. Valor vazio fica sempre por último, nos dois sentidos — `cmpOrd`.
 
-Unidades por tipologia, desempenho por incorporadora e concentração por bairro são hierárquicas: a linha de grupo abre os empreendimentos que a compõem. A ordenação vale nos dois níveis — grupos entre si e folhas dentro de cada grupo (`ordenarHierarquia`). Clicar numa folha centraliza o empreendimento no mapa.
+Três tabelas são hierárquicas, e a profundidade muda por tabela:
+
+| Tabela | Hierarquia |
+|---|---|
+| Unidades por tipologia | tipo → incorporadora → empreendimento |
+| Concentração por bairro | bairro (ou macrozona) → incorporadora → empreendimento |
+| Desempenho por incorporadora | incorporadora → empreendimento |
+
+Um único par de funções serve as três, em qualquer profundidade: `linhasArvore()` desenha as linhas marcando cada uma com o caminho do nó (`0`, `0-2`, `0-2-1`) e a classe do nível (`n0`/`n1`/`n2`), e `ligarArvore()` decide a visibilidade por uma regra só — *uma linha aparece quando todos os seus ancestrais estão abertos*. Fechar um grupo esconde os netos junto, e reabrir devolve a expansão que estava lá antes. `ordenarArvore()` ordena recursivamente: a coluna clicada ordena os irmãos em todos os níveis. Clicar num empreendimento centraliza ele no mapa.
+
+O acumulado de cada nó é somado a partir dos filhos, nunca recalculado da base filtrada — é o que garante que nível 1 feche com nível 0 e os dois com o TOTAL GERAL.
 
 ### 13i. Campo vazio é campo vazio — nada de valor inventado
 
@@ -270,6 +280,16 @@ Ao expandir um card do `.duo`, o Chart.js estica o canvas para a largura da tela
 
 Cada tabela guarda as larguras em `larguras[idTabela][índice]`, fora do DOM — as tabelas são refeitas por `innerHTML` a cada ordenação e a largura precisa sobreviver a isso. No primeiro arraste, todas as colunas têm a largura atual congelada e a tabela passa a `table-layout: fixed`; sem isso o navegador redistribui as outras colunas a cada pixel arrastado. Duplo clique na alça restaura a tabela inteira.
 
+### 13k. Rótulo de dados: dentro da barra, fora do ponto
+
+O interruptor de rótulos vale para os quatro gráficos — oferta disponível e lançamentos, nos modos Total e Detalhado. O desenho muda conforme o elemento: em ponto de linha o número vai acima; em barra (única ou empilhada) vai **dentro**, em branco e centralizado no segmento. Fora dela, os rótulos das cinco séries se empilham no mesmo topo e viram borrão. Segmento com menos de 13 px de altura não recebe rótulo — não caberia — e valor zero nunca recebe.
+
+### 13l. Guarda de queda: estreitar a janela de propósito também aborta
+
+`checar_variacao` barra a publicação quando a janela devolve mais de 10 % a menos de empreendimentos que a execução anterior. Ela não distingue erro de intenção, e é assim de propósito: um `01/2026` digitado como `03/2026` some com dezenas de projetos sem erro nenhum. Estreitar a janela de propósito cai na mesma trava.
+
+Por isso a mensagem de aborto imprime os parâmetros das duas execuções, lado a lado — se a janela mudou, a queda é esperada. O escape é o campo **ignorar_queda** no formulário do workflow (`OF_IGNORAR_QUEDA=1` quando rodado à mão). O agendamento mensal nunca ignora: só a execução manual pode liberar.
+
 ### 13e. O `?v=` do index.html é carimbado pelo pipeline
 
 Os arquivos de dados são servidos com `?v=<carimbo>`. Se o pipeline reescreve `data/dados_of.js` e o `?v=` continua o mesmo, o navegador serve a versão anterior do cache — o dashboard mostra a base da execução passada sem erro nenhum. Por isso `atualizar_cache_buster()` reescreve o token com a data e hora da execução no fim do pipeline, e o workflow commita o `index.html` junto com os dados. Em mudança só de código, o token é bumpado à mão no commit.
@@ -281,7 +301,7 @@ Os arquivos de dados são servidos com `?v=<carimbo>`. Se o pipeline reescreve `
 ### 14. Médias de venda do mercado
 
 - **Média mensal:** entre os projetos históricos dos mesmos *clusters* dos empreendimentos filtrados, `unidades vendidas ÷ meses de comercialização`.
-- **Média deflacionada:** mesma conta ignorando os 3 primeiros meses após o lançamento (tira o pico).
+- **Média deflacionada:** mesma conta ignorando os 3 primeiros meses após o lançamento (tira o pico). Saiu do painel e do PDF a pedido; continua na aba Resumo do Excel exportado, porque lá é dado bruto, não leitura de tela.
 - **Clusters:** `apart-map-1Q` a `apart-map-4Qmaior` (por nº de quartos), `apart-eco`, `outros`. É o cluster que liga um empreendimento novo à curva de venda do mercado.
 
 ### 15. Ponto vermelho e LTM
@@ -300,7 +320,7 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Gráficos** | Oferta disponível por mês e lançamentos por mês (Mês/Tri/Ano/LTM), recortados pelo período filtrado. O botão **Detalhado** abre duas quebras: **Tipologias** (1Q–4Q e comercial) ou **Faixa de m²**; a tooltip lista os empreendimentos do período com suas unidades. |
 | **Plano Diretor** | Painel com as 22 camadas do Plano Diretor de Goiânia 2022, agrupadas em Estrutura, Densidade, Ambiental e Programas. Desligadas por padrão; dá para ligar uma, um grupo inteiro ou todas. Cada camada só é baixada quando ligada. |
 | **Expandir** | Todo painel tem botão de expandir para tela cheia (estilo Power BI). `ESC` restaura. |
-| **Por incorporadora** | Projetos, unidades, quantos em protocolo, aprovados e lançados, além do tempo de aprovação (mediana e média) com o tamanho da amostra. Tem **período próprio** de protocolo/aprovação e ignora o filtro global de período de lançamento. Abre por empreendimento. |
+| **Por incorporadora** | Projetos, unidades, quantos em protocolo, aprovados e lançados, além do tempo de aprovação (mediana e média). Tem **período próprio** de protocolo/aprovação e ignora o filtro global de período de lançamento. Abre por empreendimento. |
 | **Concentração** | Onde a oferta se acumula, por bairro ou macrozona: empreendimentos, unidades, participação, incorporadoras distintas e m² médio. Abre por empreendimento. |
 | **Tabelas** | Todas ordenam pelo cabeçalho (texto A→Z, número do maior; segundo clique inverte) e têm **largura de coluna arrastável** pela borda direita do cabeçalho — duplo clique restaura. As hierárquicas abrem os empreendimentos do grupo, e o clique numa linha de empreendimento centraliza o mapa. |
 | **Radar** | Primeira tabela da página, com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
