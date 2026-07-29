@@ -71,11 +71,27 @@ Etapas:
 
 | Variável | Padrão | O que faz |
 |---|---|---|
-| `OF_LANCTO_INI` | `01/2026` | início da janela de lançamentos considerada |
-| `OF_LANCTO_FIM` | `12/2027` | fim da janela |
-| `DATA_FIM_PROJ` | `06/2027` | até quando estender a projeção da síntese |
+| `OF_DATA_BASE` | `01/2026` | data base (mm/aaaa) — dela saem todos os prazos |
 | `FATOR_AJUSTE` | `1.0` | multiplicador aplicado à curva de vendas |
 | `OF_IGNORAR_QUEDA` | — | `1` libera a guarda de sanidade (ver abaixo) |
+
+**A data base é o único parâmetro de período.** Os três prazos que o pipeline usava
+antes viravam três campos independentes no formulário, e um deles fora de sincronia
+com os outros dois produzia uma projeção incoerente sem avisar. Agora todos saem da
+mesma data, amarrados aos 18 meses da curva de venda:
+
+| Prazo | Valor |
+|---|---|
+| Início da janela de lançamentos | a própria data base |
+| Fim da janela de lançamentos | data base + 18 meses (mês inteiro) |
+| Fim da projeção da síntese | data base + 18 meses |
+
+Com `OF_DATA_BASE=03/2026`: janela **03/2026 → 09/2027**. A data base aceita `mm/aaaa`
+ou `aaaa-mm`; qualquer outra coisa aborta o pipeline antes de tocar no banco.
+
+O fim da janela cobre o **mês inteiro**, não o dia 1º: um lançamento em 20/09/2027
+pertence a setembro e entra. Antes a comparação era contra o dia 1º e um lançamento
+com dia preenchido no cadastro caía fora do último mês em silêncio.
 
 ### Credenciais
 
@@ -286,7 +302,7 @@ O interruptor de rótulos vale para os quatro gráficos — oferta disponível e
 
 ### 13l. Guarda de queda: estreitar a janela de propósito também aborta
 
-`checar_variacao` barra a publicação quando a janela devolve mais de 10 % a menos de empreendimentos que a execução anterior. Ela não distingue erro de intenção, e é assim de propósito: um `01/2026` digitado como `03/2026` some com dezenas de projetos sem erro nenhum. Estreitar a janela de propósito cai na mesma trava.
+`checar_variacao` barra a publicação quando a janela devolve mais de 10 % a menos de empreendimentos que a execução anterior. Ela não distingue erro de intenção, e é assim de propósito: um `01/2026` digitado como `03/2026` some com dezenas de projetos sem erro nenhum. Mudar a data base de propósito cai na mesma trava — e como a data base move as duas pontas da janela ao mesmo tempo, a queda costuma ser maior do que se imagina. Na base de jul/2026: base `01/2026` → 79 empreendimentos, `03/2026` → 78, `06/2026` → 64.
 
 Por isso a mensagem de aborto imprime os parâmetros das duas execuções, lado a lado — se a janela mudou, a queda é esperada. O escape é o campo **ignorar_queda** no formulário do workflow (`OF_IGNORAR_QUEDA=1` quando rodado à mão). O agendamento mensal nunca ignora: só a execução manual pode liberar.
 
@@ -303,6 +319,27 @@ Os arquivos de dados são servidos com `?v=<carimbo>`. Se o pipeline reescreve `
 - **Média mensal:** entre os projetos históricos dos mesmos *clusters* dos empreendimentos filtrados, `unidades vendidas ÷ meses de comercialização`.
 - **Média deflacionada:** mesma conta ignorando os 3 primeiros meses após o lançamento (tira o pico). Saiu do painel e do PDF a pedido; continua na aba Resumo do Excel exportado, porque lá é dado bruto, não leitura de tela.
 - **Clusters:** `apart-map-1Q` a `apart-map-4Qmaior` (por nº de quartos), `apart-eco`, `outros`. É o cluster que liga um empreendimento novo à curva de venda do mercado.
+
+### 14b. Cluster sem histórico segue o mercado
+
+A curva de um cluster sai de `vendas acumuladas ÷ estoque` em quatro janelas (3, 6, 12 e 18 meses), convertidas em 18 taxas mensais. Isso pressupõe que o cluster tenha histórico. Quando não tem, havia duas saídas ruins, e o pipeline pegava a pior:
+
+1. **Antes:** curva zerada. O produto vendia zero e o estoque ficava de pé nos 18 meses inteiros. Parece "não opinar", mas não é — é a previsão mais pessimista possível, apresentada com a mesma cara de dado que todas as outras.
+2. **Agora:** curva global. O cluster segue a tendência média de toda a base — a mesma conta, somando todos os produtos históricos em vez de só os do cluster.
+
+Nenhuma das duas é o comportamento real daquele cluster, que ninguém sabe. A diferença é que a curva global é um palpite declarado a partir de evidência, e o zero é um palpite disfarçado de ausência de palpite.
+
+Vale nos três pontos onde a falta de histórico aparecia:
+
+| Caso | Antes | Agora |
+|---|---|---|
+| Cluster com estoque histórico zerado | curva zerada (`fillna(0)`) | curva global |
+| Cluster ausente do resumo (merge devolve `NaN`) | curva zerada | curva global |
+| Extensão da síntese com cluster desconhecido | `v_m = 0` | curva global |
+
+O `FATOR_AJUSTE` é aplicado **uma vez só** — a curva global entra crua no `fillna` e o fator multiplica o resultado, senão o cluster sem histórico levaria o fator ao quadrado.
+
+O log do pipeline imprime a venda global acumulada em 18 meses e nomeia os clusters que caíram no fallback. Na base de jul/2026 os seis clusters têm histórico próprio (`outros` inclusive, com 7.576 linhas de síntese), então o fallback não muda número nenhum hoje — é rede de proteção para quando um cluster novo aparecer ou o histórico de um secar.
 
 ### 15. Ponto vermelho e LTM
 

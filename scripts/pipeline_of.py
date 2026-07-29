@@ -13,11 +13,16 @@ Fluxo:
      + data/mapa_of.js via scripts/preprocess.py (o dashboard lê esses arquivos;
      o commit do workflow dispara o deploy automático no Vercel).
 
-Parâmetros (variáveis de ambiente, com os padrões do último processamento):
-  OF_LANCTO_INI   mm/aaaa  início da janela de lançamentos OF   (padrão 01/2026)
-  OF_LANCTO_FIM   mm/aaaa  fim da janela de lançamentos OF      (padrão 12/2027)
-  DATA_FIM_PROJ   mm/aaaa  data final da projeção da síntese    (padrão 06/2027)
+Parâmetros (variáveis de ambiente):
+  OF_DATA_BASE    mm/aaaa  data base da projeção                (padrão 01/2026)
   FATOR_AJUSTE    float    fator multiplicador da curva          (padrão 1.0)
+
+A data base é o único parâmetro de período. Dela saem os três prazos que o pipeline
+usa, todos amarrados aos 18 meses da curva de venda:
+  - início da janela de lançamentos OF = a própria data base
+  - fim da janela de lançamentos OF    = data base + 18 meses (mês inteiro)
+  - fim da projeção da síntese         = data base + 18 meses
+Exemplo: OF_DATA_BASE=03/2026 -> janela 03/2026 a 09/2027.
 """
 import os
 import re
@@ -123,6 +128,53 @@ TIPOS_PG = {
     'CidadeId': 'double precision', 'BairroId': 'double precision',
     'AreaTerreno': 'double precision', 'Adensamento': 'double precision',
 }
+
+
+# a curva de venda tem 18 meses de vida; a janela de lançamentos acompanha esse prazo
+MESES_CURVA = 18
+COLS_VENDAS = ['totalunidades', 'vendas3M', 'vendas6M', 'vendas12M', 'vendas18M']
+CURVA_COLS = [f'%{m}M' for m in range(1, MESES_CURVA + 1)]
+
+
+def mes_ano(txt, rotulo='data base'):
+    """'03/2026' -> datetime(2026, 3, 1). Aceita também '2026-03'."""
+    txt = str(txt).strip()
+    for fmt in ('%m/%Y', '%Y-%m'):
+        try:
+            return datetime.strptime(txt, fmt)
+        except ValueError:
+            pass
+    raise SystemExit(f'{rotulo} inválida: {txt!r}. Use mm/aaaa, por exemplo 03/2026.')
+
+
+def taxa_mensal(m, tot, v3, v6, v12, v18):
+    """Fração do estoque vendida no mês m de vida, a partir dos acumulados por janela.
+
+    Funciona com escalares ou com Series (a aritmética é vetorizada nos dois casos)."""
+    if m <= 3:
+        return (v3 / tot) / 3
+    if m <= 6:
+        return ((v6 - v3) / tot) / 3
+    if m <= 12:
+        return ((v12 - v6) / tot) / 6
+    return ((v18 - v12) / tot) / 6
+
+
+def curva_do_mercado(df_prod):
+    """Curva do mercado inteiro: a mesma conta da curva de cluster, somando toda a base.
+
+    É o que um cluster sem histórico próprio passa a seguir. Antes ele recebia curva
+    zerada — vendia nada e o estoque ficava de pé nos 18 meses, o que é uma previsão
+    tão arbitrária quanto qualquer outra, só que pessimista ao extremo. A tendência
+    média do mercado é o palpite honesto quando não há base de comparação específica.
+    """
+    s = df_prod[COLS_VENDAS].sum()
+    tot = s['totalunidades']
+    if not tot or pd.isna(tot):
+        return {c: 0.0 for c in CURVA_COLS}
+    return {f'%{m}M': float(taxa_mensal(m, tot, s['vendas3M'], s['vendas6M'],
+                                        s['vendas12M'], s['vendas18M']))
+            for m in range(1, MESES_CURVA + 1)}
 
 
 def definir_cluster(tipo, quartos):
@@ -330,12 +382,17 @@ def atualizar_cache_buster():
 
 def main():
     load_env()
-    lancto_ini = os.environ.get('OF_LANCTO_INI', '01/2026')
-    lancto_fim = os.environ.get('OF_LANCTO_FIM', '12/2027')
-    data_fim_proj = os.environ.get('DATA_FIM_PROJ', '06/2027')
+    data_base = os.environ.get('OF_DATA_BASE', '01/2026')
     fator_ajuste = float(os.environ.get('FATOR_AJUSTE', '1.0').replace(',', '.'))
-    parametros = f'OF {lancto_ini}-{lancto_fim} | proj {data_fim_proj} | fator {fator_ajuste}'
-    print(f'Parâmetros: OF {lancto_ini}–{lancto_fim} | projeção síntese até {data_fim_proj} | fator {fator_ajuste}')
+    dt_ini = mes_ano(data_base)
+    dt_fim = dt_ini + DateOffset(months=MESES_CURVA)
+    # janela fecha no ÚLTIMO dia do mês final: um lançamento em 20/09/2027 pertence a
+    # setembro e não pode cair fora por causa do dia
+    dt_fim_mes = dt_fim + DateOffset(months=1) - DateOffset(days=1)
+    lancto_ini, lancto_fim = dt_ini.strftime('%m/%Y'), dt_fim.strftime('%m/%Y')
+    parametros = f'base {lancto_ini} | janela {lancto_ini}-{lancto_fim} | fator {fator_ajuste}'
+    print(f'Parâmetros: data base {lancto_ini} + {MESES_CURVA} meses '
+          f'-> janela e projeção até {lancto_fim} | fator {fator_ajuste}')
 
     pg = neon_connect()
     df_s = ler_sintese_neon(pg)
@@ -361,14 +418,22 @@ def main():
         # fillna só na coluna nova: um fillna(0) global viraria datas/bools em zero
         df_prod_s[f'vendas{p}M'] = df_prod_s[f'vendas{p}M'].fillna(0)
 
-    resumo = df_prod_s.groupby('cluster')[['totalunidades', 'vendas3M', 'vendas6M', 'vendas12M', 'vendas18M']].sum().reset_index()
+    global_curva = curva_do_mercado(df_prod_s)
+    resumo = df_prod_s.groupby('cluster')[COLS_VENDAS].sum().reset_index()
     resumo['totalunidades'] = resumo['totalunidades'].replace(0, np.nan)
-    for m in range(1, 19):
-        if m <= 3: val = (resumo['vendas3M'] / resumo['totalunidades']) / 3
-        elif m <= 6: val = ((resumo['vendas6M'] - resumo['vendas3M']) / resumo['totalunidades']) / 3
-        elif m <= 12: val = ((resumo['vendas12M'] - resumo['vendas6M']) / resumo['totalunidades']) / 6
-        else: val = ((resumo['vendas18M'] - resumo['vendas12M']) / resumo['totalunidades']) / 6
-        resumo[f'%{m}M'] = val.fillna(0) * fator_ajuste
+    for m in range(1, MESES_CURVA + 1):
+        col = f'%{m}M'
+        val = taxa_mensal(m, resumo['totalunidades'], resumo['vendas3M'],
+                          resumo['vendas6M'], resumo['vendas12M'], resumo['vendas18M'])
+        # cluster sem estoque histórico segue a tendência média do mercado
+        resumo[col] = val.fillna(global_curva[col]) * fator_ajuste
+    # curva pronta por cluster; quem não estiver no dicionário cai na global
+    curva_padrao = {c: global_curva[c] * fator_ajuste for c in CURVA_COLS}
+    curvas = {r['cluster']: {c: r[c] for c in CURVA_COLS} for _, r in resumo.iterrows()}
+    sem_hist = [c for c in curvas if all(curvas[c][k] == curva_padrao[k] for k in CURVA_COLS)]
+    print(f'  curvas: {len(curvas)} clusters | venda global em 18M: '
+          f'{sum(global_curva.values()) * 100:.1f}% do estoque'
+          + (f' | sem histórico próprio, seguindo o mercado: {", ".join(sorted(sem_hist))}' if sem_hist else ''))
 
     # -------- etapa 2: projeção OF --------
     df_of = df_of.rename(columns={
@@ -381,9 +446,7 @@ def main():
     })
     df_of['dtlançamento'] = pd.to_datetime(
         df_of['DataLancamento'].fillna(df_of['DataPrevisaoLancamento']), errors='coerce')
-    dt_ini = datetime.strptime(lancto_ini, '%m/%Y')
-    dt_fim = datetime.strptime(lancto_fim, '%m/%Y')
-    df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim)].copy()
+    df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim_mes)].copy()
     n_emps = df_of['id_empreendimento'].nunique()
     print(f'  janela OF: {len(df_of)} tipologias / {n_emps} empreendimentos')
     checar_variacao(pg, n_emps, parametros)
@@ -395,11 +458,11 @@ def main():
     df_of['tipologia_tratada'] = (df_of['tipologia'].astype(str).str.upper().str.strip()
                                   .map(MAPA_TIPOLOGIA).fillna(quartos).fillna(0))
     df_of['cluster'] = [definir_cluster(t, q) for t, q in zip(df_of['TipoEmpreendimento'], df_of['tipologia_tratada'])]
-    curva_cols = [f'%{i}M' for i in range(1, 19)]
-    df_meta = df_of.merge(resumo[['cluster'] + curva_cols], on='cluster', how='left')
-    # cluster sem histórico -> curva zerada. fillna(0) global aqui zerava datas de
-    # protocolo/aprovação e flags de projeto (a ficha mostrava "0" como data)
-    df_meta[curva_cols] = df_meta[curva_cols].fillna(0)
+    df_meta = df_of.merge(resumo[['cluster'] + CURVA_COLS], on='cluster', how='left')
+    # cluster que nem existe no histórico também segue a curva global. O fillna é por
+    # coluna (dicionário): um fillna global aqui zerava datas de protocolo/aprovação e
+    # flags de projeto (a ficha chegou a mostrar "0" como data)
+    df_meta[CURVA_COLS] = df_meta[CURVA_COLS].fillna(curva_padrao)
 
     proj_rows = []
     for _, row in df_meta.iterrows():
@@ -407,7 +470,7 @@ def main():
         id_emp = str(row['id_empreendimento'])
         id_emp_str = str(int(float(id_emp))) if id_emp.replace('.', '').isdigit() else ''
         link = f'https://inteligencia.ebm.com.br/Empreendimento/Alterar/{id_emp_str}' if id_emp_str else ''
-        for m in range(1, 19):
+        for m in range(1, MESES_CURVA + 1):
             v_m = int(round(row['Unids_tipologia'] * row.get(f'%{m}M', 0)))
             v_acum += v_m
             proj_rows.append({**{c: row.get(c) for c in df_of.columns},
@@ -423,10 +486,10 @@ def main():
     df_final_of = df_final_of[COLUNAS_ORDEM_FINAL_OF]
 
     # -------- etapa 3: extensão da síntese --------
-    dt_fim_p = datetime.strptime(data_fim_proj, '%m/%Y')
     proj_s = []
     for _, prod in df_prod_s.iterrows():
-        curva = resumo[resumo['cluster'] == prod['cluster']]
+        # cluster desconhecido segue a curva do mercado, igual à projeção OF
+        curva = curvas.get(prod['cluster'], curva_padrao)
         hist = df_s[(df_s['empreendimento'] == prod['empreendimento']) &
                     (df_s['tipologia'] == prod['tipologia']) &
                     (df_s['privativa'] == prod['privativa'])].sort_values('data')
@@ -437,11 +500,11 @@ def main():
         if pd.isnull(lancto):
             continue  # sem data de lançamento não há curva de vida a aplicar
         data_cur, est_cur = ultimo['data'], ultimo['unidadesdisponiveis']
-        while pd.notnull(data_cur) and data_cur < dt_fim_p and est_cur > 0:
+        while pd.notnull(data_cur) and data_cur < dt_fim and est_cur > 0:
             data_cur += DateOffset(months=1)
             vida = (data_cur.year - lancto.year) * 12 + (data_cur.month - lancto.month) + 1
-            v_m = int(round(prod['totalunidades'] * pd.to_numeric(curva[f'%{int(vida)}M'].values[0], errors='coerce'))) \
-                if (1 <= vida <= 18 and not curva.empty) else 0
+            v_m = int(round(prod['totalunidades'] * curva[f'%{int(vida)}M'])) \
+                if 1 <= vida <= MESES_CURVA else 0
             v_m = min(v_m, max(0, est_cur))
             est_cur -= v_m
             nova = ultimo.to_dict()
