@@ -480,12 +480,19 @@ const dataLabelsPlugin = {
         if (i % step) return;
         const v = ds.data[i];
         if (!v || !el) return;                          // zero não vira rótulo
-        /* barra empilhada: o rótulo vai dentro do segmento, em branco. Fora dela
-           os rótulos das séries se sobrepõem no topo da pilha e viram borrão. */
+        /* barra: rótulo NA VERTICAL dentro do segmento, em branco. Se a barra for
+           mais baixa que o texto rotacionado, fica sem rótulo (melhor sem do que
+           esmagado ou vazando para fora do segmento). */
         if (el.base !== undefined) {
-          if (Math.abs(el.base - el.y) < 13) return;     // segmento fino: não cabe
-          ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
-          ctx.fillText(fmtInt(v), el.x, (el.y + el.base) / 2);
+          const txt = fmtInt(v);
+          const altura = Math.abs(el.base - el.y);
+          if (altura < ctx.measureText(txt).width + 8) return;   // não cabe: sem rótulo
+          ctx.save();
+          ctx.translate(el.x, (el.y + el.base) / 2);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(txt, 0, 0);
+          ctx.restore();
         } else {
           ctx.fillStyle = NAVY; ctx.textBaseline = 'bottom';
           ctx.fillText(fmtInt(v), el.x, el.y - 4);
