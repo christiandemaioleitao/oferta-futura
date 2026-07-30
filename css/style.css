@@ -280,6 +280,18 @@ tr:hover .rt-name{color:var(--red)}
 .switch:hover::before{box-shadow:0 0 0 8px rgba(12,31,85,.10)}
 .switch:checked:hover::before{box-shadow:0 0 0 8px rgba(227,10,18,.14)}
 .switch:checked::before{transform:translateX(100%);border-color:var(--red)}
+.settings-month{flex:0 0 auto;font:inherit;font-size:12px;padding:5px 8px;border:1px solid rgba(12,31,85,.18);border-radius:8px;background:#fff;color:var(--navy);cursor:pointer}
+.settings-month:focus{outline:none;border-color:var(--navy)}
+.settings-row--btn{cursor:default}
+.settings-action{flex:0 0 auto;font:inherit;font-size:11px;font-weight:600;letter-spacing:.02em;padding:6px 12px;border:1px solid var(--navy);border-radius:8px;background:var(--navy);color:#fff;cursor:pointer;transition:opacity .2s}
+.settings-action:hover{opacity:.86}
+.settings-action:disabled{opacity:.5;cursor:default}
+.upload-sintese{display:grid;gap:8px;padding:4px 10px 10px}
+.upload-sintese .upload-senha{width:100%}
+.upload-sintese #uploadPick{width:100%;background:#fff;color:var(--navy)}
+.upload-status{font-size:11px;line-height:1.4;color:var(--gray-600);white-space:pre-wrap}
+.upload-status.err{color:var(--red)}
+.upload-status.ok{color:#1a7f46}
 @media(max-width:640px){.settings-dock{left:16px;bottom:16px}.settings-panel{bottom:68px}}
 
 /* ---------- chat IA (leadsebm) ---------- */

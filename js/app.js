@@ -36,7 +36,7 @@ const FAIXAS = [
   { id: 'f5', label: '120 – 160 m²', min: 120, max: 160 },
   { id: 'f6', label: '160 m² ou mais', min: 160, max: 1e9 },
 ];
-const state = { from: '', to: '', macrozona: new Set(), bairro: new Set(), incorporadora: new Set(), tipo: new Set(), tipologia: new Set(), faixa: new Set() };
+const state = { from: '', to: '', empreendimento: new Set(), macrozona: new Set(), bairro: new Set(), incorporadora: new Set(), tipo: new Set(), tipologia: new Set(), faixa: new Set() };
 
 function empFaixas(e) {
   const out = new Set();
@@ -49,6 +49,7 @@ function empMatches(e, comPeriodo = true) {
   const m = (e.dtLancamento || '').slice(0, 7);
   if (comPeriodo && state.from && m && m < state.from) return false;
   if (comPeriodo && state.to && m && m > state.to) return false;
+  if (state.empreendimento.size && !state.empreendimento.has(e.empreendimento)) return false;
   if (state.macrozona.size && !state.macrozona.has(mzLabel(e.macrozona))) return false;
   if (state.bairro.size && !state.bairro.has(e.bairro)) return false;
   if (state.incorporadora.size && !state.incorporadora.has(e.incorporadora)) return false;
@@ -128,6 +129,7 @@ function uniqueVals(fn) {
   return [...set.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR')).map(v => ({ id: v, label: v }));
 }
 function buildFilters() {
+  buildMultiselect('empreendimento', uniqueVals(e => e.empreendimento));
   buildMultiselect('macrozona', uniqueVals(e => mzLabel(e.macrozona)));
   buildMultiselect('bairro', uniqueVals(e => e.bairro));
   buildMultiselect('incorporadora', uniqueVals(e => e.incorporadora));
@@ -141,7 +143,7 @@ function buildFilters() {
 function filtersSummaryText() {
   const parts = [];
   if (state.from || state.to) parts.push(`LANÇAMENTO ${state.from ? ymLabel(state.from) : '…'} → ${state.to ? ymLabel(state.to) : '…'}`);
-  const names = { macrozona: 'MACROZONA', bairro: 'BAIRRO', incorporadora: 'INCORPORADORA', tipo: 'TIPO', tipologia: 'TIPOLOGIA', faixa: 'FAIXA M²' };
+  const names = { empreendimento: 'EMPREENDIMENTO', macrozona: 'MACROZONA', bairro: 'BAIRRO', incorporadora: 'INCORPORADORA', tipo: 'TIPO', tipologia: 'TIPOLOGIA', faixa: 'FAIXA M²' };
   Object.entries(names).forEach(([k, label]) => {
     if (state[k].size) {
       const vals = [...state[k]].map(v => k === 'faixa' ? (FAIXAS.find(f => f.id === v)?.label || v) : v);
@@ -440,6 +442,8 @@ Chart.defaults.font.size = 10;
 Chart.defaults.color = GRAY;
 /* rótulos de dados (liga/desliga no dock de configurações) */
 let showDataLabels = localStorage.getItem('ofDashboardDataLabels') === '1';
+/* mês de referência (ponto vermelho da oferta disponível) — configurável no dock; padrão = mês atual */
+let refMonth = localStorage.getItem('ofDashboardRefMonth') || nowYM();
 const dataLabelsPlugin = {
   id: 'ofDataLabels',
   afterDatasetsDraw(chart) {
@@ -600,7 +604,7 @@ function dispTooltipList(m) {
   return lines;
 }
 function renderCharts() {
-  const ref = nowYM();
+  const ref = refMonth;
   const legendCfg = { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 12 } };
   if (chartDisp) chartDisp.destroy();
   if (detalhado) {
@@ -1647,7 +1651,7 @@ Limite de 200 linhas por consulta — agregue no SQL.
 Também existe sintese_consolidada (mercado histórico bruto). Se a pergunta fugir do mercado imobiliário/dados do dashboard, diga que foge do escopo.`;
 }
 function aiUserContext() {
-  return `Mês de referência: ${nowYM()}. Filtros ativos no dashboard (apenas contexto; o banco não está filtrado): ${filtersSummaryText() || 'nenhum'}.`;
+  return `Mês de referência: ${refMonth}. Filtros ativos no dashboard (apenas contexto; o banco não está filtrado): ${filtersSummaryText() || 'nenhum'}.`;
 }
 async function runNeonSQL(sql) {
   const res = await fetch(SQL_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) });
@@ -2071,6 +2075,115 @@ function initSettingsPanel() {
       renderCharts();
     };
   }
+  const refInput = $('#refMonthInput');
+  if (refInput) {
+    refInput.value = refMonth;
+    refInput.onchange = () => {
+      refMonth = refInput.value || nowYM();
+      refInput.value = refMonth;
+      localStorage.setItem('ofDashboardRefMonth', refMonth);
+      renderCharts();
+    };
+  }
+}
+
+/* ---------- upload da síntese (envia a planilha para o Neon) ----------
+   O navegador não fala com o Postgres; manda em lotes para /api/upload-sintese,
+   que grava numa staging e troca atômica pela tabela viva. Espelha as colunas de
+   scripts/upload_sintese.py. A senha vai no corpo (HTTPS) e é conferida no servidor. */
+const SINTESE_COLS = ['cidade', 'bairro', 'incorporadora', 'tipoempreendimento', 'empreendimento',
+  'datainobr', 'datahabt', 'regional', 'consorcio', 'totalunidades', 'privativa',
+  'unidadesvendidasmes', 'unidadesdistratadasmes', 'unidadesdisponiveis', 'percevolucaoobra',
+  'tipologia', 'precounidade', 'datalancamento', 'data', 'macroregiao', 'latitude', 'longitude', 'lancou'];
+const SINTESE_DATE = new Set(['datainobr', 'datahabt', 'datalancamento', 'data']);
+const SINTESE_NUM = new Set(['totalunidades', 'privativa', 'unidadesvendidasmes', 'unidadesdistratadasmes',
+  'unidadesdisponiveis', 'percevolucaoobra', 'tipologia', 'precounidade', 'macroregiao', 'latitude', 'longitude']);
+const SINTESE_CHUNK = 1000;
+
+function coDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})\/(\d{4})$/); if (m) return `${m[2]}-${m[1].padStart(2, '0')}-01`;   // mm/aaaa -> 1o do mês (igual pandas)
+  m = s.match(/^(\d{4})-(\d{1,2})$/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-01`;      // aaaa-mm -> 1o do mês
+  const d = new Date(s); return isNaN(d) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function coNum(v) {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+function coText(v) { if (v == null) return null; const s = String(v).trim(); return s === '' ? null : s; }
+
+function planilhaParaLinhas(rowsAoA) {
+  if (!rowsAoA.length) throw new Error('Planilha vazia.');
+  const header = rowsAoA[0].map(h => textKey(h).toLowerCase().replace(/\s+/g, ''));
+  const idx = {};
+  SINTESE_COLS.forEach(c => { idx[c] = header.indexOf(c.toLowerCase()); });
+  const faltando = SINTESE_COLS.filter(c => idx[c] < 0);
+  if (faltando.length) throw new Error('Colunas ausentes: ' + faltando.join(', '));
+  const linhas = [];
+  for (let r = 1; r < rowsAoA.length; r++) {
+    const row = rowsAoA[r];
+    if (!row || row.every(c => c == null || c === '')) continue; // pula linha em branco
+    linhas.push(SINTESE_COLS.map(c => {
+      const v = row[idx[c]];
+      return SINTESE_DATE.has(c) ? coDate(v) : SINTESE_NUM.has(c) ? coNum(v) : coText(v);
+    }));
+  }
+  if (!linhas.length) throw new Error('Nenhuma linha de dados encontrada.');
+  return linhas;
+}
+
+async function postUpload(payload) {
+  const r = await fetch('/api/upload-sintese', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Erro ${r.status}`);
+  return j;
+}
+
+async function enviarSintese(senha, file, setStatus) {
+  setStatus('Lendo planilha…', '');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true, blankrows: false });
+  const linhas = planilhaParaLinhas(aoa);
+  const total = linhas.length;
+
+  setStatus(`Preparando envio de ${fmtInt(total)} linhas…`, '');
+  await postUpload({ senha, action: 'init' });
+  for (let i = 0; i < total; i += SINTESE_CHUNK) {
+    const lote = linhas.slice(i, i + SINTESE_CHUNK);
+    await postUpload({ senha, action: 'chunk', rows: lote });
+    setStatus(`Enviando… ${fmtInt(Math.min(i + lote.length, total))}/${fmtInt(total)}`, '');
+  }
+  const fim = await postUpload({ senha, action: 'commit', arquivo: file.name, total });
+  setStatus(`✓ ${fmtInt(fim.linhas)} linhas no banco.\nBase bruta atualizada — rode o pipeline para recalcular o dashboard.`, 'ok');
+}
+
+function initSinteseUpload() {
+  const btn = $('#uploadSinteseBtn'), panel = $('#uploadSintesePanel');
+  if (!btn || !panel) return;
+  const senha = $('#uploadSenha'), pick = $('#uploadPick'), file = $('#uploadFile'), status = $('#uploadStatus');
+  const setStatus = (msg, cls) => { status.textContent = msg; status.className = 'upload-status mono' + (cls ? ' ' + cls : ''); };
+  btn.onclick = e => { e.stopPropagation(); panel.hidden = !panel.hidden; if (!panel.hidden) senha.focus(); };
+  panel.onclick = e => e.stopPropagation();
+  pick.onclick = () => {
+    if (!senha.value.trim()) { setStatus('Digite a senha antes de escolher a planilha.', 'err'); senha.focus(); return; }
+    setStatus('', ''); file.value = ''; file.click();
+  };
+  file.onchange = async () => {
+    const f = file.files && file.files[0]; if (!f) return;
+    pick.disabled = true; senha.disabled = true;
+    try { await enviarSintese(senha.value.trim(), f, setStatus); }
+    catch (err) { setStatus('✕ ' + (err.message || err), 'err'); }
+    finally { pick.disabled = false; senha.disabled = false; file.value = ''; }
+  };
 }
 
 /* ---------- init ---------- */
@@ -2082,6 +2195,7 @@ applyAll();
 initEditableText();
 initAIChat();
 initSettingsPanel();
+initSinteseUpload();
 initPlanoDiretor();
 initExpandir();
 ligarLarguras('radarTable');   // thead do radar é estático; as demais religam a cada render

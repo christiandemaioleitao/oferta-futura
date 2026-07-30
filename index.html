@@ -71,6 +71,7 @@
       <div class="field field--range"><label class="mono">PERÍODO DE LANÇAMENTO</label>
         <div class="range-row"><input type="month" id="fltFrom" /><span class="mono">→</span><input type="month" id="fltTo" /></div>
       </div>
+      <div class="field" data-ms="empreendimento"><label class="mono">EMPREENDIMENTO</label></div>
       <div class="field" data-ms="bairro"><label class="mono">BAIRRO</label></div>
       <div class="field" data-ms="incorporadora"><label class="mono">INCORPORADORA</label></div>
       <div class="field" data-ms="tipo"><label class="mono">TIPO DE EMPREENDIMENTO</label></div>
@@ -261,6 +262,14 @@
   <div class="settings-panel">
     <label class="settings-row"><span><b>Edições</b><small>Ocultar lápis da página</small></span><input class="switch" id="editLockBtn" type="checkbox" title="Ocultar edições" aria-label="Ocultar edições" /></label>
     <label class="settings-row"><span><b>Rótulos de dados</b><small>Valores nos gráficos de oferta e lançamentos</small></span><input class="switch" id="dataLabelsBtn" type="checkbox" title="Rótulos de dados" aria-label="Rótulos de dados" /></label>
+    <label class="settings-row"><span><b>Mês de referência</b><small>Ponto vermelho da oferta disponível por mês</small></span><input class="settings-month" id="refMonthInput" type="month" title="Mês de referência" aria-label="Mês de referência" /></label>
+    <div class="settings-row settings-row--btn"><span><b>Base da síntese</b><small>Substituir sintese_consolidada no banco</small></span><button class="settings-action" id="uploadSinteseBtn" type="button">Atualizar</button></div>
+    <div class="upload-sintese" id="uploadSintesePanel" hidden>
+      <input class="settings-month upload-senha" id="uploadSenha" type="password" placeholder="Senha" autocomplete="off" />
+      <input id="uploadFile" type="file" accept=".xlsx,.xls,.csv" hidden />
+      <button class="settings-action" id="uploadPick" type="button">Escolher planilha…</button>
+      <div class="upload-status mono" id="uploadStatus"></div>
+    </div>
   </div>
 </div>
 
