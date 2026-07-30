@@ -102,7 +102,9 @@ SELECT
     ec.DataAprovacao          AS DataAprovacao,
     ec.FonteEmpreendimento    AS FonteEmpreendimento,
     ec.FonteDataLancamento    AS FonteDataLancamento,
-    t.FonteTipologia          AS FonteTipologia,
+    -- a tela de edição do portal grava a fonte no CADASTRO; a cópia por tipologia
+    -- não é sincronizada pelo sistema (68 linhas divergentes em 07/2026) — o cadastro manda
+    COALESCE(NULLIF(LTRIM(RTRIM(ec.FonteTipologia)), ''), t.FonteTipologia) AS FonteTipologia,
     ec.FonteDataPrevisaoLancamento AS FonteDataPrevisaoLancamento,
     c.Uf                      AS [Cidade.Uf],
     c.Regional                AS [Cidade.Regional],

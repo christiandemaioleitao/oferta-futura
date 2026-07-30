@@ -634,16 +634,20 @@ function renderCharts() {
        +18 meses); depois disso não existe estoque de mercado calculado e a soma
        viraria só os lançamentos, despencando de mentira. */
     const ofSerie = monthlySeries(filtered);
-    const mercMap = new Map(DATA.mercadoMensal || []);
+    /* com filtro de entidade ativo o mercado global (síntese, sem dimensão) não representa
+       o recorte: a curva vira só o estoque dos empreendimentos filtrados — o 1º mês de cada
+       um já nasce como lançadas − vendidas no mês do lançamento (vem assim do pipeline) */
+    const entFiltro = ['empreendimento', 'macrozona', 'bairro', 'incorporadora', 'tipo', 'tipologia', 'faixa'].some(k => state[k].size);
+    const mercMap = entFiltro ? new Map() : new Map(DATA.mercadoMensal || []);
     const ofMap = new Map(ofSerie);
     const serie = mercMap.size
       ? ofSerie.filter(x => mercMap.has(x[0])).map(x => [x[0], x[1] + mercMap.get(x[0])])
-      : ofSerie;                                   // base antiga sem mercadoMensal: só OF
+      : ofSerie;                                   // filtro ativo ou base antiga: só OF
     const refIdx = serie.findIndex(x => x[0] === ref);
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
       data: { labels: serie.map(x => ymLabel(x[0])), datasets: [{
-        label: 'Estoque projetado (mercado + lançamentos)', data: serie.map(x => Math.round(x[1])),
+        label: entFiltro ? 'Estoque projetado (só os empreendimentos filtrados)' : 'Estoque projetado (mercado + lançamentos)', data: serie.map(x => Math.round(x[1])),
         borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
         pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
         pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
@@ -651,7 +655,7 @@ function renderCharts() {
         pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
       }]},
       plugins: [dataLabelsPlugin],
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: entFiltro ? legendCfg : { display: false }, tooltip: { callbacks: {
         label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''),
         afterBody: items => {
           if (!items.length) return [];
