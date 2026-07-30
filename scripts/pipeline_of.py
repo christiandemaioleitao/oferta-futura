@@ -572,7 +572,12 @@ def main():
         # sem data de lançamento não há curva de vida a aplicar — mas o estoque do
         # produto existe e fica DE PÉ (v_m = 0) até o horizonte. Pular o produto
         # fazia o estoque dele evaporar da curva única depois da data base.
-        data_cur, est_cur = ultimo['data'], ultimo['unidadesdisponiveis']
+        data_cur = ultimo['data']
+        # o produto pode ter MAIS DE UMA linha no mês do snapshot (a origem repete a
+        # linha quando o preço muda). O estoque a projetar é a SOMA delas — carregar
+        # só a última linha vazava a diferença (295 un) e, quando a última vinha
+        # zerada, o produto inteiro sumia da projeção (71 un).
+        est_cur = hist[hist['data'] == ultimo['data']]['unidadesdisponiveis'].sum()
         while pd.notnull(data_cur) and data_cur < dt_fim and est_cur > 0:
             data_cur += DateOffset(months=1)
             if pd.isnull(lancto):
