@@ -526,11 +526,18 @@ def main():
         id_emp = str(row['id_empreendimento'])
         id_emp_str = str(int(float(id_emp))) if id_emp.replace('.', '').isdigit() else ''
         link = f'https://inteligencia.ebm.com.br/Empreendimento/Alterar/{id_emp_str}' if id_emp_str else ''
-        for m in range(1, MESES_CURVA + 1):
-            v_m = int(round(row['Unids_tipologia'] * row.get(f'%{m}M', 0)))
+        # a série vai até o fim da própria vida de 18M OU até o fim da projeção da
+        # síntese, o que for mais longe. Sem o prolongamento, um produto lançado na
+        # data base terminava em base+17 e o estoque que sobrou dele SUMIA do total
+        # um mês antes do horizonte — a curva única perdia unidades sem venda nenhuma.
+        lanc = row['dtlançamento']
+        n_meses = max(MESES_CURVA, (dt_fim.year - lanc.year) * 12 + (dt_fim.month - lanc.month) + 1)
+        for m in range(1, n_meses + 1):
+            # depois do 18º mês de vida a curva acabou: v_m = 0 e o estoque fica de pé
+            v_m = int(round(row['Unids_tipologia'] * row.get(f'%{m}M', 0))) if m <= MESES_CURVA else 0
             v_acum += v_m
             proj_rows.append({**{c: row.get(c) for c in df_of.columns},
-                              'data': row['dtlançamento'] + DateOffset(months=m - 1),
+                              'data': lanc + DateOffset(months=m - 1),
                               'unidadesvendidasmes': v_m,
                               'unidadesdisponiveis': row['Unids_tipologia'] - v_acum,
                               'unidadesdistratadasmes': 0, 'LinkPortal': link})
@@ -562,12 +569,16 @@ def main():
         if ultimo['data'] != pd.Timestamp(dt_ini):
             continue
         lancto = pd.to_datetime(prod['datalancamento'], errors='coerce')
-        if pd.isnull(lancto):
-            continue  # sem data de lançamento não há curva de vida a aplicar
+        # sem data de lançamento não há curva de vida a aplicar — mas o estoque do
+        # produto existe e fica DE PÉ (v_m = 0) até o horizonte. Pular o produto
+        # fazia o estoque dele evaporar da curva única depois da data base.
         data_cur, est_cur = ultimo['data'], ultimo['unidadesdisponiveis']
         while pd.notnull(data_cur) and data_cur < dt_fim and est_cur > 0:
             data_cur += DateOffset(months=1)
-            vida = (data_cur.year - lancto.year) * 12 + (data_cur.month - lancto.month) + 1
+            if pd.isnull(lancto):
+                vida = 0
+            else:
+                vida = (data_cur.year - lancto.year) * 12 + (data_cur.month - lancto.month) + 1
             v_m = int(round(prod['totalunidades'] * curva[f'%{int(vida)}M'])) \
                 if 1 <= vida <= MESES_CURVA else 0
             v_m = min(v_m, max(0, est_cur))

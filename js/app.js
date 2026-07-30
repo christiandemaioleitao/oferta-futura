@@ -628,39 +628,38 @@ function renderCharts() {
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
   } else {
-    const serie = monthlySeries(filtered);
-    const refIdx = serie.findIndex(x => x[0] === ref);
-    const dsets = [{
-      label: 'Oferta futura', data: serie.map(x => Math.round(x[1])),
-      borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
-      pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
-      pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
-      pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
-      pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
-    }];
-    // linha do mercado (base síntese inteira, não obedece aos filtros): dá a régua
-    // do estoque total — 13.107 un na data base — ao lado da oferta futura
+    /* curva ÚNICA: estoque do mercado (síntese) + estoque dos previstos a lançar,
+       somados mês a mês — a projeção de estoque total se o mercado se comportar
+       como a base prevê. O eixo vai até onde a síntese foi projetada (data base
+       +18 meses); depois disso não existe estoque de mercado calculado e a soma
+       viraria só os lançamentos, despencando de mentira. */
+    const ofSerie = monthlySeries(filtered);
     const mercMap = new Map(DATA.mercadoMensal || []);
-    const merc = serie.map(x => mercMap.has(x[0]) ? Math.round(mercMap.get(x[0])) : null);
-    if (merc.some(v => v != null)) dsets.push({
-      label: 'Mercado (síntese · toda a base)', data: merc,
-      borderColor: BLUE, backgroundColor: BLUE, fill: false, tension: .3, borderWidth: 2, borderDash: [6, 4],
-      spanGaps: false,
-      pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2),
-      pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : BLUE),
-      pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : BLUE),
-      pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
-    });
+    const ofMap = new Map(ofSerie);
+    const serie = mercMap.size
+      ? ofSerie.filter(x => mercMap.has(x[0])).map(x => [x[0], x[1] + mercMap.get(x[0])])
+      : ofSerie;                                   // base antiga sem mercadoMensal: só OF
+    const refIdx = serie.findIndex(x => x[0] === ref);
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
-      data: { labels: serie.map(x => ymLabel(x[0])), datasets: dsets },
+      data: { labels: serie.map(x => ymLabel(x[0])), datasets: [{
+        label: 'Estoque projetado (mercado + lançamentos)', data: serie.map(x => Math.round(x[1])),
+        borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
+        pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
+        pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
+        pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
+        pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
+      }]},
       plugins: [dataLabelsPlugin],
-      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: dsets.length > 1 ? legendCfg : { display: false }, tooltip: { callbacks: {
-        label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''}`,
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
+        label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''),
         afterBody: items => {
-          const it = items.find(x => x.datasetIndex === 0);
-          return it ? ['', ...dispTooltipList(serie[it.dataIndex][0])] : [];
+          if (!items.length) return [];
+          const m = serie[items[0].dataIndex][0];
+          const partes = [];
+          if (mercMap.size) partes.push(`MERCADO (síntese) · ${fmtInt(mercMap.get(m) || 0)} un.`,
+                                        `LANÇAMENTOS · ${fmtInt(ofMap.get(m) || 0)} un.`);
+          return ['', ...partes, ...dispTooltipList(m)];
         },
       } } },
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
