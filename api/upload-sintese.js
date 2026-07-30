@@ -61,8 +61,8 @@ export default async function handler(req, res) {
 
   try {
     if (action === 'init') {
-      await sql.query(`DROP TABLE IF EXISTS "${STAGE}"`);
-      await sql.query(ddlStage());
+      await sql(`DROP TABLE IF EXISTS "${STAGE}"`);
+      await sql(ddlStage());
       return res.status(200).json({ ok: true });
     }
 
@@ -80,7 +80,7 @@ export default async function handler(req, res) {
         r.forEach(v => params.push(v === undefined || v === '' ? null : v));
         return `(${ph.join(', ')})`;
       });
-      await sql.query(`INSERT INTO "${STAGE}" (${colList}) VALUES ${tuples.join(', ')}`, params);
+      await sql(`INSERT INTO "${STAGE}" (${colList}) VALUES ${tuples.join(', ')}`, params);
       return res.status(200).json({ ok: true, inseridas: rows.length });
     }
 
@@ -88,7 +88,7 @@ export default async function handler(req, res) {
       // troca atômica num único statement: o bloco DO roda em uma transação, então se
       // o RENAME falhar o DROP é revertido e a tabela viva continua de pé. LIVE/STAGE são
       // constantes internas (não entrada do usuário), então não há injeção aqui.
-      await sql.query(`DO $$ BEGIN
+      await sql(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '${STAGE}') THEN
           RAISE EXCEPTION 'staging inexistente — rode init/chunk antes do commit';
         END IF;
@@ -97,13 +97,13 @@ export default async function handler(req, res) {
       END $$;`);
       const total = Number(body.total) || null;
       const arquivo = String(body.arquivo || '').slice(0, 200);
-      await sql.query(
+      await sql(
         `CREATE TABLE IF NOT EXISTS of_meta (chave text PRIMARY KEY, valor text, atualizado_em timestamptz DEFAULT now())`);
-      await sql.query(
+      await sql(
         `INSERT INTO of_meta (chave, valor, atualizado_em) VALUES ('sintese_linhas', $1, now()), ('sintese_arquivo', $2, now())
          ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = now()`,
         [String(total), arquivo]);
-      const [{ n }] = await sql.query(`SELECT count(*)::int AS n FROM "${LIVE}"`);
+      const [{ n }] = await sql(`SELECT count(*)::int AS n FROM "${LIVE}"`);
       return res.status(200).json({ ok: true, linhas: n });
     }
 
