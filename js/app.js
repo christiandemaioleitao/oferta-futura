@@ -861,29 +861,31 @@ function ligarArvore(id, aoClicarFolha) {
 }
 
 /* ---------- pivot: unidades por tipologia ----------
-   Hierarquia tipo de empreendimento → incorporadora → empreendimento. */
+   Hierarquia tipo de empreendimento → incorporadora → empreendimento.
+   O seletor de nível (drill) re-agrega a tabela começando na dimensão escolhida. */
+let pivotNivel = 0;   // 0=tipo, 1=incorporadora, 2=empreendimento
 function renderPivot() {
   const cols = [...new Set(filtered.flatMap(e => (e.tipologias || []).map(t => String(t.tratada != null ? t.tratada : t.tipologia))))].sort();
   const cell = (e, c) => (e.tipologias || []).filter(t => String(t.tratada != null ? t.tratada : t.tipologia) === c).reduce((s, t) => s + (t.unids || 0), 0);
   const somar = filhos => Object.fromEntries(cols.map(c => [c, filhos.reduce((s, f) => s + f.vals[c], 0)]));
   const total = vals => cols.reduce((s, c) => s + vals[c], 0);
-  const porTipo = {};
-  filtered.forEach(e => {
-    const t = porTipo[e.tipo || '—'] = porTipo[e.tipo || '—'] || {};
-    (t[e.incorporadora || '—'] = t[e.incorporadora || '—'] || []).push(e);
-  });
-  const linhas = Object.entries(porTipo).map(([tipo, porInc]) => {
-    const filhos = Object.entries(porInc).map(([inc, emps]) => {
-      const netos = emps.map(e => {
-        const vals = Object.fromEntries(cols.map(c => [c, cell(e, c)]));
-        return { nome: e.empreendimento || '—', id: e.id, vals, total: total(vals) };
-      });
-      const vals = somar(netos);
-      return { nome: inc, vals, total: total(vals), filhos: netos };
+  const noEmp = e => {
+    const vals = Object.fromEntries(cols.map(c => [c, cell(e, c)]));
+    return { nome: e.empreendimento || '—', id: e.id, vals, total: total(vals) };
+  };
+  const agrupar = (emps, chave, montarFilhos) => {
+    const acc = {};
+    emps.forEach(e => (acc[chave(e)] = acc[chave(e)] || []).push(e));
+    return Object.entries(acc).map(([nome, grupo]) => {
+      const filhos = montarFilhos(grupo);
+      const vals = somar(filhos);
+      return { nome, vals, total: total(vals), filhos };
     });
-    const vals = somar(filhos);
-    return { nome: tipo, vals, total: total(vals), filhos };
-  });
+  };
+  const porInc = emps => agrupar(emps, e => e.incorporadora || '—', g => g.map(noEmp));
+  const linhas = pivotNivel === 2 ? filtered.map(noEmp)
+    : pivotNivel === 1 ? porInc(filtered)
+      : agrupar(filtered, e => e.tipo || '—', porInc);
   const valor = (r, k) => k === 'g' ? r.nome : k === 'total' ? r.total : r.vals[k];
   const gtot = Object.fromEntries(cols.map(c => [c, linhas.reduce((s, l) => s + l.vals[c], 0)]));
   const gsum = linhas.reduce((s, l) => s + l.total, 0);
@@ -893,7 +895,7 @@ function renderPivot() {
     + cols.map(c => `<td>${celula(n.vals[c])}</td>`).join('')
     + `<td>${nivel === 0 ? `<b>${fmtInt(n.total)}</b>` : fmtInt(n.total)}</td>`;
   const html = cabecalhoOrdenavel('pivotTable', [
-    { k: 'g', label: 'TIPO / INCORPORADORA / EMPREENDIMENTO' },
+    { k: 'g', label: ['TIPO / INCORPORADORA / EMPREENDIMENTO', 'INCORPORADORA / EMPREENDIMENTO', 'EMPREENDIMENTO'][pivotNivel] },
     ...cols.map(c => ({ k: c, label: escapeHtml(rotuloTipologia(c)), num: true })),
     { k: 'total', label: 'TOTAL', num: true },
   ]) + '<tbody>' + linhasArvore(ordenadas, celulas)
@@ -2011,7 +2013,7 @@ function statsIncorporadoras(emps) {
     if (lancado) a.lancados += 1;
     if (prazo != null) a.prazos.push(prazo);
     a.filhos.push({
-      nome: e.empreendimento || '—', id: e.id, projetos: 1, unidades: e.totalUnidades || 0,
+      nome: e.empreendimento || '—', id: e.id, ehEmp: true, projetos: 1, unidades: e.totalUnidades || 0,
       protocolo: emProtocolo ? 1 : 0, aprovados: aprovado ? 1 : 0, lancados: lancado ? 1 : 0,
       dataProtocolo: e.dataProtocolo || null, dataAprovacao: e.dataAprovacao || null,
       medianaAprov: prazo, mediaAprov: prazo,
@@ -2021,22 +2023,25 @@ function statsIncorporadoras(emps) {
     ...a, medianaAprov: mediana(a.prazos), mediaAprov: media(a.prazos),
   }));
 }
+let incNivel = 0;   // 0=incorporadora (com drill p/ empreendimentos), 1=empreendimento (lista plana)
 function renderIncorporadoras() {
   const alvo = $('#incTable'); if (!alvo) return;
-  const linhas = ordenarArvore(statsIncorporadoras(baseIncorporadoras()), 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
+  const stats = statsIncorporadoras(baseIncorporadoras());
+  const linhas = ordenarArvore(incNivel ? stats.flatMap(a => a.filhos) : stats, 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
   const meses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
   const marca = v => v ? `<b>${v}</b>` : '·';
   const tot = linhas.reduce((s, l) => ({
     projetos: s.projetos + l.projetos, unidades: s.unidades + l.unidades,
     protocolo: s.protocolo + l.protocolo, aprovados: s.aprovados + l.aprovados,
-    lancados: s.lancados + l.lancados, prazos: s.prazos.concat(l.prazos),
+    lancados: s.lancados + l.lancados,
+    prazos: s.prazos.concat(l.prazos || (l.medianaAprov != null ? [l.medianaAprov] : [])),
   }), { projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] });
   const sub = $('#incSub');
   if (sub) sub.textContent = incJanela()
     ? `Projetos protocolados ou aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · não obedece ao filtro de período de lançamento · lançado = lançamento até ${ymLabel(rEguaLancamento())}`
     : `Toda a base, sem recorte de período · lançado = lançamento até ${ymLabel(rEguaLancamento())} · tempo de aprovação = protocolo → aprovação`;
   const cols = [
-    { k: 'nome', label: 'INCORPORADORA / EMPREENDIMENTO' },
+    { k: 'nome', label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' },
     { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
     { k: 'protocolo', label: 'EM PROTOCOLO', num: true }, { k: 'aprovados', label: 'APROVADOS', num: true },
     { k: 'lancados', label: 'LANÇADOS', num: true },
@@ -2045,20 +2050,22 @@ function renderIncorporadoras() {
     { k: 'dataProtocolo', label: 'DATA PROTOCOLO' }, { k: 'dataAprovacao', label: 'DATA APROVAÇÃO' },
     { k: 'medianaAprov', label: 'APROV. MEDIANA', num: true }, { k: 'mediaAprov', label: 'APROV. MÉDIA', num: true },
   ];
-  const celulas = (l, nivel) => `
+  /* linha de empreendimento (ehEmp) tem o mesmo visual em qualquer nível:
+     no drill dentro da incorporadora ou na lista plana do nível Empreend. */
+  const celulas = l => `
       <td>${escapeHtml(l.nome)}</td>
-      <td class="num">${nivel ? '·' : fmtInt(l.projetos)}</td>
+      <td class="num">${l.ehEmp ? '·' : fmtInt(l.projetos)}</td>
       <td class="num">${fmtInt(l.unidades)}</td>
-      <td class="num">${nivel ? marca(l.protocolo) : (l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>')}</td>
-      <td class="num">${nivel ? marca(l.aprovados) : (l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>')}</td>
-      <td class="num">${nivel ? marca(l.lancados) : fmtInt(l.lancados)}</td>
-      <td class="num">${nivel ? (dateBR(l.dataProtocolo) || '—') : ''}</td>
-      <td class="num">${nivel ? (dateBR(l.dataAprovacao) || '—') : ''}</td>
+      <td class="num">${l.ehEmp ? marca(l.protocolo) : (l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>')}</td>
+      <td class="num">${l.ehEmp ? marca(l.aprovados) : (l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>')}</td>
+      <td class="num">${l.ehEmp ? marca(l.lancados) : fmtInt(l.lancados)}</td>
+      <td class="num">${l.ehEmp ? (dateBR(l.dataProtocolo) || '—') : ''}</td>
+      <td class="num">${l.ehEmp ? (dateBR(l.dataAprovacao) || '—') : ''}</td>
       <td class="num">${meses(l.medianaAprov)}</td>
       <td class="num">${meses(l.mediaAprov)}</td>`;
   const html = cabecalhoOrdenavel('incTable', cols) + '<tbody>' + linhasArvore(linhas, celulas)
     + `<tr class="tot-row">
-      <td>TOTAL · ${linhas.length} incorporadoras</td>
+      <td>TOTAL · ${linhas.length} ${incNivel ? 'empreendimentos' : 'incorporadoras'}</td>
       <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
       <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
       <td class="num">${fmtInt(tot.lancados)}</td>
@@ -2071,16 +2078,16 @@ function renderIncorporadoras() {
   ligarLarguras('incTable');
 }
 
-/* ---------- concentração por bairro / macrozona ---------- */
+/* ---------- concentração por bairro / macrozona / incorporadora / empreendimento ----------
+   O seg escolhe o nível topo da hierarquia: bairro e macrozona mantêm o drill
+   geografia → incorporadora → empreendimento; incorporadora re-agrega a tabela
+   inteira (share de mercado por incorporadora, drill p/ empreendimentos);
+   empreendimento é a lista plana com o share individual. */
 let concMode = 'bairro';
 function renderConcentracao() {
   const alvo = $('#concTable'); if (!alvo) return;
-  const chave = e => concMode === 'macrozona' ? mzLabel(e.macrozona) : (e.bairro || '—');
-  const acc = {};
-  filtered.forEach(e => {
-    const g = acc[chave(e)] = acc[chave(e)] || {};
-    (g[e.incorporadora || '—'] = g[e.incorporadora || '—'] || []).push(e);
-  });
+  const chaveGeo = e => concMode === 'macrozona' ? mzLabel(e.macrozona) : (e.bairro || '—');
+  const geoLabel = concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO';
   const areaMedia = areas => {
     const u = areas.reduce((s, [, n]) => s + n, 0);
     return u ? areas.reduce((s, [a, n]) => s + a * n, 0) / u : null;
@@ -2091,47 +2098,71 @@ function renderConcentracao() {
   const somaUn = emps => emps.reduce((s, e) => s + (e.totalUnidades || 0), 0);
   const somaArea = emps => emps.reduce((s, e) => s + (e.areaTerreno || 0), 0);
   const totUn = somaUn(filtered) || 1;
-  const linhasBrutas = Object.entries(acc).map(([k, porInc]) => {
-    const todos = Object.values(porInc).flat();
-    return {
-      nome: k, emps: todos.length, unidades: somaUn(todos), pct: somaUn(todos) * 100 / totUn,
-      incs: Object.keys(porInc).filter(i => i !== '—').length, m2: areaMedia(tiposDe(todos)), area: somaArea(todos),
-      filhos: Object.entries(porInc).map(([inc, emps]) => ({
-        nome: inc, emps: emps.length, unidades: somaUn(emps), pct: somaUn(emps) * 100 / totUn,
-        incs: null, m2: areaMedia(tiposDe(emps)), area: somaArea(emps),
-        filhos: emps.map(e => ({
-          nome: e.empreendimento || '—', id: e.id, emps: null, unidades: e.totalUnidades || 0,
-          pct: (e.totalUnidades || 0) * 100 / totUn, incs: null,
-          m2: areaMedia(tiposDe([e])), area: e.areaTerreno || 0,
-        })),
-      })),
-    };
+  /* dim = coluna que muda com o nível: nº de incorporadoras (geografia),
+     nº de bairros (incorporadora) ou o bairro do empreendimento (lista plana) */
+  const noEmp = (e, dim) => ({
+    nome: e.empreendimento || '—', id: e.id, emps: null, unidades: e.totalUnidades || 0,
+    pct: (e.totalUnidades || 0) * 100 / totUn, dim,
+    m2: areaMedia(tiposDe([e])), area: e.areaTerreno || 0,
   });
+  const noGrupo = (nome, emps, dim, filhos) => ({
+    nome, emps: emps.length, unidades: somaUn(emps), pct: somaUn(emps) * 100 / totUn,
+    dim, m2: areaMedia(tiposDe(emps)), area: somaArea(emps), filhos,
+  });
+  const agrupa = (emps, chave) => {
+    const acc = {};
+    emps.forEach(e => (acc[chave(e)] = acc[chave(e)] || []).push(e));
+    return Object.entries(acc);
+  };
+  const porInc = (emps, dimDe) => agrupa(emps, e => e.incorporadora || '—')
+    .map(([inc, g]) => noGrupo(inc, g, dimDe ? dimDe(g) : null, g.map(e => noEmp(e, null))));
+  let linhasBrutas, colDim, totDim, unidadeTotal, rotulo;
+  if (concMode === 'empreendimento') {
+    linhasBrutas = filtered.map(e => noEmp(e, e.bairro || '—'));
+    colDim = { k: 'dim', label: 'BAIRRO' };
+    totDim = fmtInt(new Set(filtered.map(e => e.bairro || '—')).size) + ' bairros';
+    unidadeTotal = 'empreendimentos';
+    rotulo = 'EMPREENDIMENTO';
+  } else if (concMode === 'incorporadora') {
+    linhasBrutas = porInc(filtered, g => new Set(g.map(e => e.bairro || '—')).size);
+    colDim = { k: 'dim', label: 'BAIRROS', num: true };
+    totDim = fmtInt(new Set(filtered.map(e => e.bairro || '—')).size);
+    unidadeTotal = 'incorporadoras';
+    rotulo = 'INCORPORADORA / EMPREENDIMENTO';
+  } else {
+    linhasBrutas = agrupa(filtered, chaveGeo).map(([k, g]) =>
+      noGrupo(k, g, new Set(g.map(e => e.incorporadora).filter(Boolean)).size, porInc(g, null)));
+    colDim = { k: 'dim', label: 'INCORPORADORAS', num: true };
+    totDim = fmtInt(new Set(filtered.map(e => e.incorporadora).filter(Boolean)).size);
+    unidadeTotal = concMode === 'macrozona' ? 'macrozonas' : 'bairros';
+    rotulo = geoLabel + ' / INCORPORADORA / EMPREENDIMENTO';
+  }
   const maior = Math.max(...linhasBrutas.map(l => l.unidades), 1);
   const linhas = ordenarArvore(linhasBrutas, 'concTable', (r, k) => r[k]);
   const pct = v => v.toFixed(1).replace('.', ',') + '%';
   const barra = v => `<td class="conc-bar"><i style="width:${Math.max(2, Math.min(100, v * 100 / maior))}%"></i></td>`;
-  const celulas = (l, nivel) => `
+  const dimCel = d => d == null ? '·' : (typeof d === 'number' ? fmtInt(d) : escapeHtml(d));
+  const celulas = l => `
       <td>${escapeHtml(l.nome)}</td>
       <td class="num">${l.emps == null ? '·' : fmtInt(l.emps)}</td>
       <td class="num">${fmtInt(l.unidades)}</td>
       <td class="num">${pct(l.pct)}</td>${barra(l.unidades)}
-      <td class="num">${nivel ? '·' : fmtInt(l.incs)}</td>
+      <td class="num">${dimCel(l.dim)}</td>
       <td class="num">${l.m2 == null ? '—' : fmtDec(l.m2, 0)}</td>
       <td class="num">${fmtInt(l.area)}</td>`;
   const html = cabecalhoOrdenavel('concTable', [
-    { k: 'nome', label: (concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO') + ' / INCORPORADORA / EMPREENDIMENTO' },
+    { k: 'nome', label: rotulo },
     { k: 'emps', label: 'EMPREEND.', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
     { k: 'pct', label: '% DO TOTAL', num: true }, { label: 'PARTICIPAÇÃO', fixa: true },
-    { k: 'incs', label: 'INCORPORADORAS', num: true }, { k: 'm2', label: 'M² MÉDIO', num: true },
+    colDim, { k: 'm2', label: 'M² MÉDIO', num: true },
     { k: 'area', label: 'M² TERRENO', num: true },
   ]) + '<tbody>' + linhasArvore(linhas, celulas)
     + `<tr class="tot-row">
-      <td>TOTAL · ${linhas.length} ${concMode === 'macrozona' ? 'macrozonas' : 'bairros'}</td>
+      <td>TOTAL · ${linhas.length} ${unidadeTotal}</td>
       <td class="num">${fmtInt(filtered.length)}</td>
       <td class="num">${fmtInt(totUn)}</td>
       <td class="num">100,0%</td><td></td>
-      <td class="num">${fmtInt(new Set(filtered.map(e => e.incorporadora).filter(Boolean)).size)}</td>
+      <td class="num">${totDim}</td>
       <td class="num"></td>
       <td class="num">${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</td>
     </tr></tbody>`;
@@ -2347,6 +2378,16 @@ $$('#concMode button').forEach(b => b.onclick = () => {
   concMode = b.dataset.c;
   $$('#concMode button').forEach(x => x.classList.toggle('active', x === b));
   renderConcentracao();
+});
+$$('#pivotNivel button').forEach(b => b.onclick = () => {
+  pivotNivel = +b.dataset.n;
+  $$('#pivotNivel button').forEach(x => x.classList.toggle('active', x === b));
+  renderPivot();
+});
+$$('#incNivel button').forEach(b => b.onclick = () => {
+  incNivel = +b.dataset.n;
+  $$('#incNivel button').forEach(x => x.classList.toggle('active', x === b));
+  renderIncorporadoras();
 });
 $$('#lancMode button').forEach(b => b.onclick = () => {
   lancMode = b.dataset.mode;
