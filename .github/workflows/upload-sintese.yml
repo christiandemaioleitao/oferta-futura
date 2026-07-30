@@ -1,0 +1,34 @@
+name: Upload Síntese Consolidada
+
+# Sobe fontes/sintese_consolidada.csv.gz (gerado por scripts/converter_download_layout.py)
+# para o Neon, substituindo a tabela sintese_consolidada por inteiro.
+# Depois de rodar este workflow, rode o "Pipeline Oferta Futura" para recalcular
+# a projeção com a base nova.
+on:
+  workflow_dispatch:
+    inputs:
+      arquivo:
+        description: "Arquivo da síntese no repositório"
+        default: "fontes/sintese_consolidada.csv.gz"
+
+concurrency:
+  group: pipeline-of      # mesmo grupo do pipeline: nunca escrever no Neon em paralelo
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install "pandas==2.3.1" "numpy==2.3.1" "psycopg2-binary==2.9.12"
+
+      - name: Subir síntese para o Neon
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: python scripts/upload_sintese.py "${{ github.event.inputs.arquivo || 'fontes/sintese_consolidada.csv.gz' }}"

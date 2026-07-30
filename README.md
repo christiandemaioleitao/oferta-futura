@@ -99,6 +99,8 @@ Secrets do Actions (*Settings → Secrets and variables → Actions*): `NEON_DAT
 
 Na Vercel, a função `/api/sql` usa `DATABASE_URL` (mesma string do Neon), configurada em *Project → Settings → Environment Variables*.
 
+O botão **Atualizar base da síntese** (dock de configurações → `/api/upload-sintese`) exige mais uma variável na Vercel: `SINTESE_UPLOAD_SENHA`. É a senha que o botão pede antes do upload; sem ela o endpoint recusa qualquer escrita (fica desligado). Use uma senha forte — é um endpoint público que substitui a tabela `sintese_consolidada` inteira. Ver §16.
+
 Localmente, um `.env` na raiz (ignorado pelo git) — ver `.env.example`.
 
 ### Guarda de sanidade
@@ -320,26 +322,30 @@ Os arquivos de dados são servidos com `?v=<carimbo>`. Se o pipeline reescreve `
 - **Média deflacionada:** mesma conta ignorando os 3 primeiros meses após o lançamento (tira o pico). Saiu do painel e do PDF a pedido; continua na aba Resumo do Excel exportado, porque lá é dado bruto, não leitura de tela.
 - **Clusters:** `apart-map-1Q` a `apart-map-4Qmaior` (por nº de quartos), `apart-eco`, `outros`. É o cluster que liga um empreendimento novo à curva de venda do mercado.
 
-### 14b. Cluster sem histórico segue o mercado
+### 14b. A curva de vendas — método (revisado em 07/2026)
 
-A curva de um cluster sai de `vendas acumuladas ÷ estoque` em quatro janelas (3, 6, 12 e 18 meses), convertidas em 18 taxas mensais. Isso pressupõe que o cluster tenha histórico. Quando não tem, havia duas saídas ruins, e o pipeline pegava a pior:
+A curva responde: *que fração do estoque um lançamento vende em cada etapa dos primeiros 18 meses de vida?* O cálculo, em `curvas_de_venda()`:
 
-1. **Antes:** curva zerada. O produto vendia zero e o estoque ficava de pé nos 18 meses inteiros. Parece "não opinar", mas não é — é a previsão mais pessimista possível, apresentada com a mesma cara de dado que todas as outras.
-2. **Agora:** curva global. O cluster segue a tendência média de toda a base — a mesma conta, somando todos os produtos históricos em vez de só os do cluster.
+1. **Grão de produto** = `empreendimento + tipologia + privativa + incorporadora`. A incorporadora entra de propósito: em consórcio a síntese repete a linha para cada membro e o **estoque oficial soma todas** (13.107 un em 03/2026, conferido contra a planilha bruta). Com ela no grão, numerador e denominador contam do mesmo jeito — antes as vendas de consórcio somavam 2× contra estoque 1×.
+2. **Coorte** = produtos lançados nos últimos **36 meses** até a data base. A vida conta a partir do lançamento e só até a data base.
+3. **% vendido por etapa de vida** (3, 6, 9, 12, 15 e 18 meses), por cluster. Cada etapa usa **apenas os produtos que já a viveram por inteiro** (`vida_obs >= etapa`): um produto com 7 meses de vida entra em 3M e 6M e é desconsiderado das etapas seguintes. Antes ele entrava com venda zero em todas — 30% do denominador era venda-zero por construção e a curva saía achatada (51,7% em 18M contra os ~74% reais).
+4. O incremento de cada etapa é `vendas da janela ÷ estoque de quem a observa`, com piso em zero (distrato líquido não desfaz venda passada); o acumulado é a soma dos incrementos — monotônico por construção e com teto em 100%. A taxa mensal usada na projeção é `incremento ÷ 3`.
+5. **Fallback**: cluster sem histórico numa etapa herda o incremento do mercado; previsto que não se encaixa em cluster APART (`outros`: comercial, casas, lotes) segue a **curva global do mercado** inteira — o residual não vira curva própria.
 
-Nenhuma das duas é o comportamento real daquele cluster, que ninguém sabe. A diferença é que a curva global é um palpite declarado a partir de evidência, e o zero é um palpite disfarçado de ausência de palpite.
+O `FATOR_AJUSTE` multiplica a curva pronta, **uma vez só**.
 
-Vale nos três pontos onde a falta de histórico aparecia:
+**Validação** (data base 03/2026, régua definida pelo usuário):
 
-| Caso | Antes | Agora |
+| Métrica | Valor | Gate |
 |---|---|---|
-| Cluster com estoque histórico zerado | curva zerada (`fillna(0)`) | curva global |
-| Cluster ausente do resumo (merge devolve `NaN`) | curva zerada | curva global |
-| Extensão da síntese com cluster desconhecido | `v_m = 0` | curva global |
+| Estoque na data base | 13.107 un | = soma da planilha ✓ |
+| VSO clássica 12M (vendas ÷ estoque inicial + lançado) | 44,8% | 40–50% ✓ |
+| Coorte global 12M de vida | 70,0% | acima da VSO clássica é esperado: lançamento vende mais rápido que o estoque antigo que a VSO carrega |
+| Coorte global 18M de vida | 73,8% | — |
 
-O `FATOR_AJUSTE` é aplicado **uma vez só** — a curva global entra crua no `fillna` e o fator multiplica o resultado, senão o cluster sem histórico levaria o fator ao quadrado.
+Curvas por cluster em 18M de vida: `1Q` 92% (produto de investidor, quase esgota), `2Q` 78%, `eco` 75%, `3Q` 61%, `4Q+` 58%. O pipeline imprime tudo isso no log e avisa se a VSO sair da régua (não aborta — pode ser ciclo de mercado real).
 
-O log do pipeline imprime a venda global acumulada em 18 meses e nomeia os clusters que caíram no fallback. Na base de jul/2026 os seis clusters têm histórico próprio (`outros` inclusive, com 7.576 linhas de síntese), então o fallback não muda número nenhum hoje — é rede de proteção para quando um cluster novo aparecer ou o histórico de um secar.
+A base da síntese vem do export DownloadLayout do Brain, convertido por `scripts/converter_download_layout.py` (filtra **Goiânia + Aparecida de Goiânia**, mantém as linhas de consórcio) e subido ao Neon pelo workflow **Upload Síntese Consolidada**.
 
 ### 15. Ponto vermelho e LTM
 
@@ -372,3 +378,18 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 - **Nunca commitar chave de API em `js/app.js`** — o arquivo é servido ao navegador. A chave do chat é do usuário e fica só no `localStorage` dele.
 - `/api/sql` aceita apenas `SELECT`/`WITH`, uma instrução por chamada, no máximo 200 linhas, e só responde às origens do próprio site.
 - A senha `123` protege a edição de textos no navegador; não é controle de acesso.
+- `/api/upload-sintese` é o único endpoint de **escrita**. Fica desligado até `SINTESE_UPLOAD_SENHA` existir na Vercel; a senha é conferida no servidor e nunca aparece no JS. Ainda assim é público — use senha forte.
+
+## 16. Upload da síntese pelo dashboard
+
+O botão **Atualizar base da síntese** (dock ⚙️) substitui a tabela `sintese_consolidada` no Neon sem sair do navegador. Equivale ao `scripts/upload_sintese.py`, mesmas 23 colunas e tipos.
+
+Por que não é um `INSERT` direto: o navegador não fala com o Postgres, e a Vercel Hobby limita requisição a ~4,5 MB e função a 10 s. Então o cliente (`js/app.js`) lê a planilha com o SheetJS, converte as datas (`dd/mm/aaaa`, `mm/aaaa`, ISO), os números (vírgula decimal) e manda em lotes de 1.000 linhas para `/api/upload-sintese`:
+
+| Ação | O que faz |
+|------|-----------|
+| `init` | recria a tabela de staging `sintese_stage` |
+| `chunk` | insere um lote de linhas na staging (parametrizado) |
+| `commit` | troca atômica (bloco `DO`): `DROP` da viva + `RENAME` da staging; grava `of_meta` |
+
+A troca só acontece no `commit`, num único statement atômico — se o upload falhar no meio, a `sintese_consolidada` viva continua intacta. **A base bruta muda, mas o dashboard não**: rode o pipeline depois para recalcular `projecao_of` e os `data/*.js`.

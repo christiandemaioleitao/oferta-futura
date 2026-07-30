@@ -132,8 +132,14 @@ TIPOS_PG = {
 
 # a curva de venda tem 18 meses de vida; a janela de lançamentos acompanha esse prazo
 MESES_CURVA = 18
-COLS_VENDAS = ['totalunidades', 'vendas3M', 'vendas6M', 'vendas12M', 'vendas18M']
+JANELAS_CURVA = [3, 6, 9, 12, 15, 18]     # etapas de vida em que o % vendido é medido
+MESES_HISTORICO = 36                       # só lançamentos dos últimos 36M da data base
 CURVA_COLS = [f'%{m}M' for m in range(1, MESES_CURVA + 1)]
+# grão de produto da síntese: inclui a incorporadora de propósito — em consórcio o
+# mesmo empreendimento tem uma linha por membro e o estoque oficial soma todas
+# (13.107 un em 03/2026, validado contra a planilha). Com a incorporadora no grão,
+# numerador e denominador da curva contam do mesmo jeito que o estoque.
+ID_COLS_SINTESE = ['empreendimento', 'tipologia', 'privativa', 'incorporadora']
 
 
 def mes_ano(txt, rotulo='data base'):
@@ -147,34 +153,100 @@ def mes_ano(txt, rotulo='data base'):
     raise SystemExit(f'{rotulo} inválida: {txt!r}. Use mm/aaaa, por exemplo 03/2026.')
 
 
-def taxa_mensal(m, tot, v3, v6, v12, v18):
-    """Fração do estoque vendida no mês m de vida, a partir dos acumulados por janela.
+def _curva_incremental(produtos, vendas, incs_global=None):
+    """Curva de uma coorte: % do estoque vendido por etapa de vida (3, 6, ... 18 meses).
 
-    Funciona com escalares ou com Series (a aritmética é vetorizada nos dois casos)."""
-    if m <= 3:
-        return (v3 / tot) / 3
-    if m <= 6:
-        return ((v6 - v3) / tot) / 3
-    if m <= 12:
-        return ((v12 - v6) / tot) / 6
-    return ((v18 - v12) / tot) / 6
+    Cada etapa usa SÓ os produtos que já viveram até ali (vida_obs >= etapa): um
+    produto com 7 meses de vida entra nas etapas de 3M e 6M e é DESCONSIDERADO das
+    seguintes — antes ele entrava com venda zero e achatava a curva inteira.
+    O incremento da etapa é venda da janela / estoque de quem observa a janela;
+    o acumulado é a soma dos incrementos, monotônico por construção.
+
+    incs_global: incrementos do mercado para etapa sem nenhum observador no cluster.
+    Devolve (dict %1M..%18M mensal, dict acumulado por etapa, dict n de produtos)."""
+    mensal, acum_etapas, n_obs = {}, {}, {}
+    acum = 0.0
+    for j in JANELAS_CURVA:
+        ok = produtos[produtos['vida_obs'] >= j]
+        tot = ok['totalunidades'].sum()
+        if len(ok) and tot > 0:
+            v = vendas.merge(ok[ID_COLS_SINTESE], on=ID_COLS_SINTESE)
+            bruto = v[(v['vida_mes'] > j - 3) & (v['vida_mes'] <= j)]['venda_liquida'].sum() / tot
+            inc = max(float(bruto), 0.0)          # distrato líquido não desfaz venda passada
+        elif incs_global is not None:
+            inc = incs_global[j]                   # etapa sem observador segue o mercado
+        else:
+            inc = 0.0
+        inc = min(inc, 1.0 - acum)                 # nunca vende mais que 100% do estoque
+        acum += inc
+        acum_etapas[j], n_obs[j] = acum, len(ok)
+        for m in range(j - 2, j + 1):
+            mensal[f'%{m}M'] = inc / 3
+    return mensal, acum_etapas, n_obs
 
 
-def curva_do_mercado(df_prod):
-    """Curva do mercado inteiro: a mesma conta da curva de cluster, somando toda a base.
+def curvas_de_venda(df_s, dt_base, fator_ajuste):
+    """Curvas por cluster + curva global do mercado, a partir da síntese mensal.
 
-    É o que um cluster sem histórico próprio passa a seguir. Antes ele recebia curva
-    zerada — vendia nada e o estoque ficava de pé nos 18 meses, o que é uma previsão
-    tão arbitrária quanto qualquer outra, só que pessimista ao extremo. A tendência
-    média do mercado é o palpite honesto quando não há base de comparação específica.
-    """
-    s = df_prod[COLS_VENDAS].sum()
-    tot = s['totalunidades']
-    if not tot or pd.isna(tot):
-        return {c: 0.0 for c in CURVA_COLS}
-    return {f'%{m}M': float(taxa_mensal(m, tot, s['vendas3M'], s['vendas6M'],
-                                        s['vendas12M'], s['vendas18M']))
-            for m in range(1, MESES_CURVA + 1)}
+    Método (validado com o usuário):
+      1. Grão de produto = empreendimento+tipologia+privativa+incorporadora.
+      2. Coorte = lançados nos últimos MESES_HISTORICO meses até a data base; a vida
+         de cada produto conta do lançamento e só até a data base.
+      3. % vendido por etapa de vida (3..18M) por cluster, etapa a etapa, contando em
+         cada uma apenas os produtos que a observaram por inteiro.
+      4. Cluster sem histórico e produto fora dos clusters APART seguem a curva global.
+
+    Devolve (curvas_por_cluster, curva_global_mensal, resumo_para_log)."""
+    prod = (df_s.sort_values('data').groupby(ID_COLS_SINTESE, dropna=False)
+            .agg(datalancamento=('datalancamento', 'first'),
+                 totalunidades=('totalunidades', 'first'),
+                 cluster=('cluster', 'first'), max_data=('data', 'max'))
+            .reset_index())
+    ini = dt_base - DateOffset(months=MESES_HISTORICO)
+    coorte = prod[(prod['datalancamento'] >= ini) & (prod['datalancamento'] <= dt_base)].copy()
+    fim_obs = coorte['max_data'].clip(upper=pd.Timestamp(dt_base))
+    coorte['vida_obs'] = ((fim_obs.dt.year - coorte['datalancamento'].dt.year) * 12 +
+                          (fim_obs.dt.month - coorte['datalancamento'].dt.month) + 1)
+
+    vendas = df_s.merge(coorte[ID_COLS_SINTESE + ['datalancamento']].rename(
+        columns={'datalancamento': '_lancto'}), on=ID_COLS_SINTESE)
+    vendas['vida_mes'] = ((vendas['data'].dt.year - vendas['_lancto'].dt.year) * 12 +
+                          (vendas['data'].dt.month - vendas['_lancto'].dt.month) + 1)
+    vendas = vendas[(vendas['vida_mes'] >= 1) & (vendas['data'] <= pd.Timestamp(dt_base))]
+
+    global_mensal, global_acum, _ = _curva_incremental(coorte, vendas)
+    incs_global = {j: global_acum[j] - global_acum.get(j - 3, 0.0) for j in JANELAS_CURVA}
+
+    curvas, log = {}, [f'    global: 12M={global_acum[12]*100:.1f}% 18M={global_acum[18]*100:.1f}% '
+                       f'({len(coorte)} produtos na coorte {ini:%m/%Y}-{dt_base:%m/%Y})']
+    for cl in sorted(coorte['cluster'].dropna().unique()):
+        if cl == 'outros':
+            continue  # residual (comercial, casas, lotes) não vira curva: previsto fora dos APART segue o mercado
+        mensal, acum, n_obs = _curva_incremental(coorte[coorte['cluster'] == cl], vendas, incs_global)
+        curvas[cl] = {c: mensal[c] * fator_ajuste for c in CURVA_COLS}
+        log.append(f'    {cl}: 12M={acum[12]*100:.1f}% 18M={acum[18]*100:.1f}% '
+                   f'({n_obs[3]}→{n_obs[18]} produtos por etapa)')
+    curva_padrao = {c: global_mensal[c] * fator_ajuste for c in CURVA_COLS}
+    return curvas, curva_padrao, log
+
+
+def validar_vso(df_s, dt_base, prod):
+    """VSO clássica de 12 meses: vendas líquidas / (estoque inicial + lançado no período).
+
+    Régua do usuário: mercado saudável fica entre 40% e 50%. Fora disso o pipeline
+    avisa mas não aborta — pode ser um ciclo de mercado atípico de verdade."""
+    ini = pd.Timestamp(dt_base) - DateOffset(months=11)
+    vendas12 = df_s[(df_s['data'] >= ini) & (df_s['data'] <= pd.Timestamp(dt_base))]['venda_liquida'].sum()
+    est_ini = df_s[df_s['data'] == ini - DateOffset(months=1)]['unidadesdisponiveis'].sum()
+    lancado = prod[(prod['datalancamento'] >= ini) &
+                   (prod['datalancamento'] <= pd.Timestamp(dt_base))]['totalunidades'].sum()
+    oferta = est_ini + lancado
+    vso = vendas12 / oferta if oferta else float('nan')
+    estoque_base = df_s[df_s['data'] == pd.Timestamp(dt_base)]['unidadesdisponiveis'].sum()
+    print(f'  VSO 12M do mercado: {vendas12:,.0f} vendas / {oferta:,.0f} oferta = {vso*100:.1f}%'
+          + ('' if 0.40 <= vso <= 0.50 else '  << FORA da régua 40-50%, confira a base'))
+    print(f'  estoque na data base ({pd.Timestamp(dt_base):%m/%Y}): {estoque_base:,.0f} unidades')
+    return vso, estoque_base
 
 
 def definir_cluster(tipo, quartos):
@@ -407,33 +479,17 @@ def main():
         df_s[c] = pd.to_numeric(df_s[c], errors='coerce')
     df_s['cluster'] = [definir_cluster(t, q) for t, q in zip(df_s['tipoempreendimento'], df_s['tipologia'])]
     df_s['venda_liquida'] = df_s['unidadesvendidasmes'].fillna(0) - df_s['unidadesdistratadasmes'].fillna(0)
+    # incorporadora faz parte do grão do produto; NULL vira '' para o merge da curva
+    # não descartar a linha (a limpeza final devolve '' a None na master)
+    df_s['incorporadora'] = df_s['incorporadora'].fillna('')
 
-    id_cols = ['empreendimento', 'tipologia', 'privativa']
-    df_prod_s = df_s.drop_duplicates(subset=id_cols).copy()
-    for p in [3, 6, 12, 18]:
-        limite = df_s['datalancamento'] + DateOffset(months=p - 1)
-        v = df_s[df_s['data'] <= limite].groupby(id_cols)['venda_liquida'].sum().reset_index()
-        v.columns = id_cols + [f'vendas{p}M']
-        df_prod_s = df_prod_s.merge(v, on=id_cols, how='left')
-        # fillna só na coluna nova: um fillna(0) global viraria datas/bools em zero
-        df_prod_s[f'vendas{p}M'] = df_prod_s[f'vendas{p}M'].fillna(0)
-
-    global_curva = curva_do_mercado(df_prod_s)
-    resumo = df_prod_s.groupby('cluster')[COLS_VENDAS].sum().reset_index()
-    resumo['totalunidades'] = resumo['totalunidades'].replace(0, np.nan)
-    for m in range(1, MESES_CURVA + 1):
-        col = f'%{m}M'
-        val = taxa_mensal(m, resumo['totalunidades'], resumo['vendas3M'],
-                          resumo['vendas6M'], resumo['vendas12M'], resumo['vendas18M'])
-        # cluster sem estoque histórico segue a tendência média do mercado
-        resumo[col] = val.fillna(global_curva[col]) * fator_ajuste
-    # curva pronta por cluster; quem não estiver no dicionário cai na global
-    curva_padrao = {c: global_curva[c] * fator_ajuste for c in CURVA_COLS}
-    curvas = {r['cluster']: {c: r[c] for c in CURVA_COLS} for _, r in resumo.iterrows()}
-    sem_hist = [c for c in curvas if all(curvas[c][k] == curva_padrao[k] for k in CURVA_COLS)]
-    print(f'  curvas: {len(curvas)} clusters | venda global em 18M: '
-          f'{sum(global_curva.values()) * 100:.1f}% do estoque'
-          + (f' | sem histórico próprio, seguindo o mercado: {", ".join(sorted(sem_hist))}' if sem_hist else ''))
+    df_prod_s = df_s.drop_duplicates(subset=ID_COLS_SINTESE).copy()
+    curvas, curva_padrao, log_curvas = curvas_de_venda(df_s, dt_ini, fator_ajuste)
+    print('  curvas por etapa de vida (acumulado):')
+    for linha in log_curvas:
+        print(linha)
+    validar_vso(df_s, dt_ini, df_prod_s.assign(
+        datalancamento=pd.to_datetime(df_prod_s['datalancamento'], errors='coerce')))
 
     # -------- etapa 2: projeção OF --------
     df_of = df_of.rename(columns={
@@ -458,11 +514,11 @@ def main():
     df_of['tipologia_tratada'] = (df_of['tipologia'].astype(str).str.upper().str.strip()
                                   .map(MAPA_TIPOLOGIA).fillna(quartos).fillna(0))
     df_of['cluster'] = [definir_cluster(t, q) for t, q in zip(df_of['TipoEmpreendimento'], df_of['tipologia_tratada'])]
-    df_meta = df_of.merge(resumo[['cluster'] + CURVA_COLS], on='cluster', how='left')
-    # cluster que nem existe no histórico também segue a curva global. O fillna é por
-    # coluna (dicionário): um fillna global aqui zerava datas de protocolo/aprovação e
-    # flags de projeto (a ficha chegou a mostrar "0" como data)
-    df_meta[CURVA_COLS] = df_meta[CURVA_COLS].fillna(curva_padrao)
+    # curva do cluster; quem não se encaixa em cluster APART (ou o cluster não tem
+    # histórico) segue a curva global do mercado — decisão validada com o usuário
+    df_meta = df_of.copy()
+    for c in CURVA_COLS:
+        df_meta[c] = df_meta['cluster'].map(lambda cl, c=c: curvas.get(cl, curva_padrao)[c])
 
     proj_rows = []
     for _, row in df_meta.iterrows():
@@ -490,12 +546,21 @@ def main():
     for _, prod in df_prod_s.iterrows():
         # cluster desconhecido segue a curva do mercado, igual à projeção OF
         curva = curvas.get(prod['cluster'], curva_padrao)
+        # o grão inclui a incorporadora: em consórcio cada membro tem a própria linha
+        # e é estendido separadamente (o estoque oficial soma todas)
         hist = df_s[(df_s['empreendimento'] == prod['empreendimento']) &
                     (df_s['tipologia'] == prod['tipologia']) &
-                    (df_s['privativa'] == prod['privativa'])].sort_values('data')
+                    (df_s['privativa'] == prod['privativa']) &
+                    (df_s['incorporadora'] == prod['incorporadora'])].sort_values('data')
         if hist.empty:
             continue
         ultimo = hist.iloc[-1]
+        # só estende produto VIVO no snapshot da data base. Produto cuja última linha
+        # é anterior saiu do acompanhamento (esgotou/suspendeu); arrastar o estoque
+        # dele para frente ressuscitava "estoque zumbi" e inflava a data base em
+        # +4.682 un (17.789 contra as 13.107 da planilha).
+        if ultimo['data'] != pd.Timestamp(dt_ini):
+            continue
         lancto = pd.to_datetime(prod['datalancamento'], errors='coerce')
         if pd.isnull(lancto):
             continue  # sem data de lançamento não há curva de vida a aplicar

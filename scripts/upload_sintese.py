@@ -39,7 +39,7 @@ def main():
     load_env()
     path = sys.argv[1]
     print('Lendo', path)
-    if path.lower().endswith('.csv'):
+    if path.lower().endswith(('.csv', '.csv.gz')):
         df = pd.read_csv(path, sep=None, engine='python', encoding='utf-8-sig')
     else:
         df = pd.read_excel(path)
