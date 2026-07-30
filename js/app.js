@@ -937,7 +937,10 @@ function fillFicha(e) {
   // campo vazio é campo vazio: não inventar fonte (aqui havia um 'PROJETO' fixo)
   $('#fFonteTip').textContent = e.fonteTipologia || '—';
   $('#fFonteLan').textContent = e.fonteDataLancamento || '—';
+  // fonte da PREVISÃO só faz sentido enquanto o lançamento é previsão: empreendimento
+  // já lançado esconde o campo (ex.: "estimado 1 mês após o meeting" num produto no mercado)
   $('#fFontePrev').textContent = e.fontePrevisao || '—';
+  $('#fFontePrev').parentElement.hidden = lanc;
   const tips = (e.tipologias || []).slice().sort((a, b) => (a.area || 0) - (b.area || 0));
   // sem rótulo no cadastro, cai no mesmo dicionário dos gráficos: 0 é COMERCIAL,
   // não "0Q" — e tipologia não informada fica em branco em vez de virar quartos
