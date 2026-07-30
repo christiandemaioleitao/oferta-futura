@@ -207,7 +207,8 @@ function renderKPIs() {
   $('#kpiHeaderCount').textContent = filtered.length;
   $('#kpiHeaderWindow').textContent = launchWindowLabel(filtered);
   $('#kpiCount').textContent = filtered.length;
-  $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0));
+  // mesma régua dos gráficos: com filtro de tipologia/faixa conta as unidades da quebra
+  $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + unidsLancadas(e), 0));
   const m = salesAverages(filtered);
   $('#kpiAvgSales').textContent = m.mes == null ? '—' : fmtDec(m.mes, 1);
   $('#footUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—') + ' · Fonte: ' + (DATA.fonte || 'base importada');
@@ -505,14 +506,47 @@ const dataLabelsPlugin = {
 /* o filtro de período recorta também o eixo do tempo: com Jan–Jun/26 selecionado,
    os gráficos mostram só esses meses, e não os 18 meses de projeção de cada produto */
 const noPeriodo = m => (!state.from || m >= state.from) && (!state.to || m <= state.to);
+/* ---------- grão dos gráficos com filtro de quebra ----------
+   Tipologia e faixa de m² selecionam UNIDADES, não empreendimentos: filtrando
+   "50 – 70 m²" o gráfico conta as unidades de 50-70, e não o estoque inteiro dos
+   empreendimentos que têm alguma unidade nessa faixa (era assim antes, e por isso
+   o número não fechava com o mesmo filtro na planilha da síntese).
+   Os dois filtros juntos usam o cruzamento `tf` gravado pelo pipeline — somar as
+   duas quebras contaria as mesmas unidades duas vezes. */
+function celDisp(cel) {
+  const t = state.tipologia, f = state.faixa;
+  if (!t.size && !f.size) return cel.disp || 0;
+  if (t.size && f.size) {
+    let v = 0;
+    Object.entries(cel.tf || {}).forEach(([k, n]) => {
+      const p = k.split('|');
+      if (t.has(p[0]) && f.has(p[1])) v += n;
+    });
+    return v;
+  }
+  const sel = t.size ? t : f, d = (t.size ? cel.tip : cel.fx) || {};
+  let v = 0;
+  sel.forEach(k => { v += d[k] || 0; });
+  return v;
+}
+/* mesma regra para o lançamento, que é contado pelas tipologias do empreendimento */
+function unidsLancadas(e) {
+  const t = state.tipologia, f = state.faixa;
+  if (!t.size && !f.size) return e.totalUnidades || 0;
+  return (e.tipologias || []).reduce((s, x) => {
+    const okT = !t.size || t.has(String(x.tratada != null ? x.tratada : x.tipologia));
+    const okF = !f.size || f.has(faixaKeyOf(x));
+    return s + (okT && okF ? (x.unids || 0) : 0);
+  }, 0);
+}
 function monthlySeries(emps) {
   const acc = {};
-  emps.forEach(e => (e.mensal || []).forEach(x => { if (noPeriodo(x.m)) acc[x.m] = (acc[x.m] || 0) + x.disp; }));
+  emps.forEach(e => (e.mensal || []).forEach(x => { if (noPeriodo(x.m)) acc[x.m] = (acc[x.m] || 0) + celDisp(x); }));
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
 function launchSeries(emps) {
   const acc = {};
-  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m && noPeriodo(m)) acc[m] = (acc[m] || 0) + (e.totalUnidades || 0); });
+  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m && noPeriodo(m)) acc[m] = (acc[m] || 0) + unidsLancadas(e); });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
 /* visão Detalhado: quebra por nº de quartos (0 = comercial) ou por faixa de m² */
@@ -543,19 +577,39 @@ function quebra() {
         colors: FAIXA_COLORS, campo: 'fx', keyOf: faixaKeyOf, semInfo: 'f0' }
     : { keys: TIP_KEYS, labels: TIP_LABELS, colors: TIP_COLORS, campo: 'tip', keyOf: tipKeyOf, semInfo: 'sem' };
 }
+/* baldes da quebra ativa já cruzados com os filtros de quebra: com filtro na MINHA
+   dimensão sobram só os baldes escolhidos; com filtro na OUTRA, cada balde conta só
+   a parte que também atende lá (vem do cruzamento `tf`) */
+function celQuebra(cel, campo) {
+  const meu = campo === 'tip' ? state.tipologia : state.faixa;
+  const outro = campo === 'tip' ? state.faixa : state.tipologia;
+  const base = cel[campo] || {};
+  if (!meu.size && !outro.size) return base;
+  const out = {};
+  if (outro.size) {
+    Object.entries(cel.tf || {}).forEach(([k, n]) => {
+      const p = k.split('|'), meuK = campo === 'tip' ? p[0] : p[1], outroK = campo === 'tip' ? p[1] : p[0];
+      if ((!meu.size || meu.has(meuK)) && outro.has(outroK)) out[meuK] = (out[meuK] || 0) + n;
+    });
+    return out;
+  }
+  Object.entries(base).forEach(([k, v]) => { if (meu.has(k)) out[k] = v; });
+  return out;
+}
 function monthlySeriesTip(emps) { // meses ordenados + série de disponíveis por chave da quebra
   const q = quebra(), acc = {};
   emps.forEach(e => (e.mensal || []).forEach(x => {
     if (!noPeriodo(x.m)) return;
     const cel = acc[x.m] = acc[x.m] || {};
-    const dados = x[q.campo];
+    const dados = celQuebra(x, q.campo);
     if (dados && Object.keys(dados).length) {
       Object.entries(dados).forEach(([k, v]) => { cel[k] = (cel[k] || 0) + v; });
-    } else if (x.disp) {
+    } else if (!(x[q.campo] && Object.keys(x[q.campo]).length) && celDisp(x)) {
       /* sem quebra gravada (base importada por Excel, p.ex.): vai inteiro para o balde
          "sem informação". Ratear pela participação das tipologias daria um desenho
-         convincente e falso — o total continua certo, a distribuição seria inventada. */
-      cel[q.semInfo] = (cel[q.semInfo] || 0) + x.disp;
+         convincente e falso — o total continua certo, a distribuição seria inventada.
+         Com quebra gravada e filtro ativo, dados vazio significa "nada nessa quebra". */
+      cel[q.semInfo] = (cel[q.semInfo] || 0) + celDisp(x);
     }
   }));
   const months = Object.keys(acc).sort();
@@ -563,15 +617,20 @@ function monthlySeriesTip(emps) { // meses ordenados + série de disponíveis po
 }
 function launchUnitsByTip(e) { // unidades lançadas do empreendimento pela quebra ativa
   const q = quebra(), out = {};
+  const t2 = state.tipologia, f2 = state.faixa;
+  const passa = t => (!t2.size || t2.has(String(t.tratada != null ? t.tratada : t.tipologia)))
+    && (!f2.size || f2.has(faixaKeyOf(t)));
   const tot = (e.tipologias || []).reduce((s, t) => s + (t.unids || 0), 0);
-  if (tot) (e.tipologias || []).forEach(t => { const k = q.keyOf(t); if (k) out[k] = (out[k] || 0) + (t.unids || 0); });
+  if (tot) (e.tipologias || []).forEach(t => { const k = q.keyOf(t); if (k && passa(t)) out[k] = (out[k] || 0) + (t.unids || 0); });
   // empreendimento sem tipologia cadastrada: as unidades vão para o balde "sem informação",
   // nos dois modos. Antes caíam em COMERCIAL no modo tipologia e sumiam no modo faixa.
   else if (e.totalUnidades) out[q.semInfo] = e.totalUnidades;
   return out;
 }
-/* modos do gráfico de lançamentos: mês, trimestre, ano, LTM (regras do dashboard leadsebm) */
-let lancMode = 'month';
+/* modos de período dos dois gráficos: mês, trimestre, ano, LTM (regras do dashboard
+   leadsebm). Lançamento é FLUXO e soma dentro do período; estoque é NÍVEL e não soma
+   — ver stockPontos/stockValor. */
+let periodoModo = 'month';
 const periodKeyOF = (m, mode) => mode === 'year' ? m.slice(0, 4) : mode === 'quarter' ? m.slice(0, 4) + '-T' + Math.ceil(+m.slice(5, 7) / 3) : m;
 const periodLabelOF = (k, mode) => mode === 'year' ? k : mode === 'quarter' ? 'T' + k.slice(6) + '/' + k.slice(2, 4) : mode === 'ltm' ? ymLabel(k) + ' LTM' : ymLabel(k);
 function ltmLaunchSeries(emps) {
@@ -583,10 +642,29 @@ function launchSeriesByMode(emps, mode) {
   if (mode === 'ltm') return ltmLaunchSeries(emps);
   if (mode === 'month') return launchSeries(emps);
   const acc = {};
-  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m) { const k = periodKeyOF(m, mode); acc[k] = (acc[k] || 0) + (e.totalUnidades || 0); } });
+  emps.forEach(e => { const m = (e.dtLancamento || '').slice(0, 7); if (m && noPeriodo(m)) { const k = periodKeyOF(m, mode); acc[k] = (acc[k] || 0) + unidsLancadas(e); } });
   return Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0]));
 }
 const ymIdx = m => +m.slice(0, 4) * 12 + (+m.slice(5, 7) - 1);
+const idxYm = i => String(Math.floor(i / 12)).padStart(4, '0') + '-' + String(i % 12 + 1).padStart(2, '0');
+/* ---------- estoque nos modos de período ----------
+   Estoque é POSIÇÃO, não fluxo: somar os meses de um trimestre contaria a mesma
+   unidade três vezes. Trimestre e ano mostram o estoque do ÚLTIMO mês do período
+   (fechamento) e LTM a média móvel dos 12 meses até ali. Cada ponto guarda o mês
+   que representa, para o tooltip abrir a composição do mês certo. */
+function stockPontos(meses, mode) {
+  if (mode !== 'quarter' && mode !== 'year') return meses.map(m => ({ k: m, m }));
+  const acc = new Map();
+  meses.forEach(m => acc.set(periodKeyOF(m, mode), m));   // meses ordenados: fica o último
+  return [...acc.entries()].map(([k, m]) => ({ k, m }));
+}
+function stockValor(map, p, mode) {
+  if (mode !== 'ltm') return map.get(p.m) || 0;
+  const i = ymIdx(p.m);
+  let soma = 0, n = 0;
+  for (let j = i - 11; j <= i; j++) { const v = map.get(idxYm(j)); if (v != null) { soma += v; n++; } }
+  return n ? soma / n : 0;
+}
 function launchSeriesTipByMode(emps, mode) {
   const chaves = quebra().keys;
   const acc = {}; // 'YYYY-MM' -> {chave: unidades}
@@ -615,91 +693,127 @@ function empsLaunchedInPeriod(k, mode) {
   }).sort((a, b) => (b.totalUnidades || 0) - (a.totalUnidades || 0));
 }
 function launchTooltipList(k, mode) {
-  const list = empsLaunchedInPeriod(k, mode);
+  const list = empsLaunchedInPeriod(k, mode).filter(e => unidsLancadas(e) > 0);
   if (!list.length) return [];
-  const lines = list.slice(0, TT_MAX).map(e => `${e.empreendimento} · ${fmtInt(e.totalUnidades)} un.`);
+  const lines = list.slice(0, TT_MAX).map(e => `${e.empreendimento} · ${fmtInt(unidsLancadas(e))} un.`);
   if (list.length > TT_MAX) lines.push(`… +${list.length - TT_MAX} empreendimentos`);
-  lines.push(`TOTAL · ${list.length} emp. · ${fmtInt(list.reduce((s, e) => s + (e.totalUnidades || 0), 0))} un.`);
+  lines.push(`TOTAL · ${list.length} emp. · ${fmtInt(list.reduce((s, e) => s + unidsLancadas(e), 0))} un.`);
   return lines;
 }
-function dispTooltipList(m) {
-  const list = filtered.map(e => ({ e, d: ((e.mensal || []).find(x => x.m === m) || {}).disp || 0 }))
+function dispTooltipList(m, emps) {
+  const list = (emps || filtered).map(e => { const c = (e.mensal || []).find(x => x.m === m); return { e, d: c ? celDisp(c) : 0 }; })
     .filter(x => x.d > 0).sort((a, b) => b.d - a.d);
   if (!list.length) return [];
   const lines = list.slice(0, TT_MAX).map(x => `${x.e.empreendimento} · ${fmtInt(x.d)} un.`);
   if (list.length > TT_MAX) lines.push(`… +${list.length - TT_MAX} empreendimentos · ${fmtInt(list.slice(TT_MAX).reduce((s, x) => s + x.d, 0))} un.`);
   return lines;
 }
+/* ---------- mercado (síntese) com dimensões ----------
+   Base instalada: os empreendimentos já lançados que formam o estoque do mercado.
+   Fica FORA de `empreendimentos` de propósito — nenhum KPI, tabela, filtro ou mapa
+   enxerga esses registros; só a curva de estoque os soma.
+   O pipeline já tira daqui quem também está na projeção (não conta duas vezes). */
+let mercadoEmps = (window.OF_DATA && OF_DATA.mercado) || [];
+/* o mercado não obedece ao filtro de PERÍODO DE LANÇAMENTO: são projetos lançados
+   no passado, e o período do dashboard é a janela da projeção — aplicá-lo zeraria
+   o mercado inteiro, que é justamente o que a curva precisa mostrar. Os cortes de
+   bairro, incorporadora, tipo, tipologia, faixa e macrozona valem normalmente. */
+const mercadoFiltrado = () => mercadoEmps.filter(e => empMatches(e, false));
+const temFiltroEntidade = () => ['empreendimento', 'macrozona', 'bairro', 'incorporadora', 'tipo', 'tipologia', 'faixa'].some(k => state[k].size);
+const SUB_MODO = { month: '', quarter: ' · Tri = estoque no fechamento do trimestre',
+  year: ' · Ano = estoque no fechamento do ano', ltm: ' · LTM = média móvel de 12 meses' };
+/* no modo mês o ponto é o próprio mês; nos outros o tooltip precisa dizer que mês
+   está por trás do número, senão "T3/26 · 12.480 un." não se explica */
+const rotuloPonto = p => periodoModo === 'month' ? []
+  : periodoModo === 'ltm' ? [`MÉDIA DOS ÚLTIMOS 12 MESES · composição de ${ymLabel(p.m)}`]
+    : [`POSIÇÃO DE ${ymLabel(p.m)} · fechamento do período`];
+function atualizarSubEstoque() {
+  const el = $('#dispSub'); if (!el) return;
+  el.textContent = 'Estoque projetado: mercado + lançamentos previstos'
+    + (temFiltroEntidade() ? ' · no recorte dos filtros' : '')
+    + ' · ponto vermelho = mês de referência' + SUB_MODO[periodoModo];
+}
 function renderCharts() {
   const ref = refMonth;
   const legendCfg = { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 12 } };
+  atualizarSubEstoque();
+  /* base do estoque = mercado (síntese) + projeção, os dois no recorte dos filtros.
+     O eixo vai só até onde a síntese foi projetada (data base +18 meses): a projeção
+     de um lançamento no fim da janela segue 18 meses além disso, e sem o corte a soma
+     viraria só os lançamentos, despencando de mentira. */
+  const janela = new Set((DATA.mercadoMensal || []).map(x => x[0]));
+  const mercEmps = mercadoFiltrado();
+  const cortar = meses => janela.size ? meses.filter(m => janela.has(m)) : meses;
   if (chartDisp) chartDisp.destroy();
   if (detalhado) {
-    const { months, byTip } = monthlySeriesTip(filtered);
-    const refIdx = months.indexOf(ref);
+    const { months, byTip } = monthlySeriesTip(filtered.concat(mercEmps));
+    const meses = cortar(months);
+    const pontos = stockPontos(meses, periodoModo);
     const q = quebra();
-    const dsets = q.keys.filter(k => byTip[k].some(v => v > 0)).map(k => ({
-      label: q.labels[k], data: byTip[k].map(v => Math.round(v)),
-      borderColor: q.colors[k], backgroundColor: q.colors[k], fill: false, tension: .3, borderWidth: 2,
-      pointRadius: months.map((m, i) => i === refIdx ? 4 : 2), pointBackgroundColor: q.colors[k],
-    }));
+    const refIdx = pontos.findIndex(p => p.m === ref);
+    const dsets = q.keys.filter(k => byTip[k].some(v => v > 0)).map(k => {
+      const map = new Map(months.map((m, i) => [m, byTip[k][i]]));
+      return {
+        label: q.labels[k], data: pontos.map(p => Math.round(stockValor(map, p, periodoModo))),
+        borderColor: q.colors[k], backgroundColor: q.colors[k], fill: false, tension: .3, borderWidth: 2,
+        pointRadius: pontos.map((p, i) => i === refIdx ? 4 : 2), pointBackgroundColor: q.colors[k],
+      };
+    });
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
-      data: { labels: months.map(ymLabel), datasets: dsets },
+      data: { labels: pontos.map(p => periodLabelOF(p.k, periodoModo)), datasets: dsets },
       plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: legendCfg, tooltip: { callbacks: {
-          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${months[c.dataIndex] === ref ? ' · mês de referência' : ''}`,
-          afterBody: items => items.length ? ['', ...dispTooltipList(months[items[0].dataIndex])] : [],
+          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${pontos[c.dataIndex].m === ref ? ' · mês de referência' : ''}`,
+          afterBody: items => items.length ? ['', ...rotuloPonto(pontos[items[0].dataIndex]),
+            ...dispTooltipList(pontos[items[0].dataIndex].m, filtered.concat(mercEmps))] : [],
         } } },
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
   } else {
-    /* curva ÚNICA: estoque do mercado (síntese) + estoque dos previstos a lançar,
-       somados mês a mês — a projeção de estoque total se o mercado se comportar
-       como a base prevê. O eixo vai até onde a síntese foi projetada (data base
-       +18 meses); depois disso não existe estoque de mercado calculado e a soma
-       viraria só os lançamentos, despencando de mentira. */
-    const ofSerie = monthlySeries(filtered);
-    /* com filtro de entidade ativo o mercado global (síntese, sem dimensão) não representa
-       o recorte: a curva vira só o estoque dos empreendimentos filtrados — o 1º mês de cada
-       um já nasce como lançadas − vendidas no mês do lançamento (vem assim do pipeline) */
-    const entFiltro = ['empreendimento', 'macrozona', 'bairro', 'incorporadora', 'tipo', 'tipologia', 'faixa'].some(k => state[k].size);
-    const mercMap = entFiltro ? new Map() : new Map(DATA.mercadoMensal || []);
-    const ofMap = new Map(ofSerie);
-    const serie = mercMap.size
-      ? ofSerie.filter(x => mercMap.has(x[0])).map(x => [x[0], x[1] + mercMap.get(x[0])])
-      : ofSerie;                                   // filtro ativo ou base antiga: só OF
-    const refIdx = serie.findIndex(x => x[0] === ref);
+    /* curva ÚNICA: estoque do mercado + estoque dos previstos a lançar, somados mês a
+       mês — a projeção de estoque total se o mercado se comportar como a base prevê. */
+    const ofMap = new Map(monthlySeries(filtered));
+    /* sem o array `mercado` no dados_of.js (base gerada por um pipeline antigo) cai na
+       regra velha: série global da síntese, que só vale quando não há filtro de entidade */
+    const mercMap = mercadoEmps.length ? new Map(monthlySeries(mercEmps))
+      : (temFiltroEntidade() ? new Map() : new Map(DATA.mercadoMensal || []));
+    const meses = cortar([...new Set([...ofMap.keys(), ...mercMap.keys()])].sort());
+    const pontos = stockPontos(meses, periodoModo);
+    const total = new Map(meses.map(m => [m, (ofMap.get(m) || 0) + (mercMap.get(m) || 0)]));
+    const serie = pontos.map(p => stockValor(total, p, periodoModo));
+    const refIdx = pontos.findIndex(p => p.m === ref);
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
-      data: { labels: serie.map(x => ymLabel(x[0])), datasets: [{
-        label: entFiltro ? 'Estoque projetado (só os empreendimentos filtrados)' : 'Estoque projetado (mercado + lançamentos)', data: serie.map(x => Math.round(x[1])),
+      data: { labels: pontos.map(p => periodLabelOF(p.k, periodoModo)), datasets: [{
+        label: 'Estoque projetado (mercado + lançamentos)' + (temFiltroEntidade() ? ' · recorte dos filtros' : ''),
+        data: serie.map(v => Math.round(v)),
         borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
-        pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
-        pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
-        pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
-        pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
+        pointRadius: pontos.map((p, i) => i === refIdx ? 6 : 2.5),
+        pointBackgroundColor: pontos.map((p, i) => i === refIdx ? RED : NAVY),
+        pointBorderColor: pontos.map((p, i) => i === refIdx ? '#fff' : NAVY),
+        pointBorderWidth: pontos.map((p, i) => i === refIdx ? 2 : 1),
       }]},
       plugins: [dataLabelsPlugin],
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: entFiltro ? legendCfg : { display: false }, tooltip: { callbacks: {
-        label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''),
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendCfg, tooltip: { callbacks: {
+        label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (pontos[c.dataIndex].m === ref ? ' · mês de referência' : ''),
         afterBody: items => {
           if (!items.length) return [];
-          const m = serie[items[0].dataIndex][0];
+          const p = pontos[items[0].dataIndex];
           const partes = [];
-          if (mercMap.size) partes.push(`MERCADO (síntese) · ${fmtInt(mercMap.get(m) || 0)} un.`,
-                                        `LANÇAMENTOS · ${fmtInt(ofMap.get(m) || 0)} un.`);
-          return ['', ...partes, ...dispTooltipList(m)];
+          if (mercMap.size) partes.push(`MERCADO (síntese) · ${fmtInt(mercMap.get(p.m) || 0)} un.`,
+                                        `LANÇAMENTOS · ${fmtInt(ofMap.get(p.m) || 0)} un.`);
+          return ['', ...rotuloPonto(p), ...partes, ...dispTooltipList(p.m, filtered.concat(mercEmps))];
         },
       } } },
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
   }
-  const lref = lancMode === 'ltm' ? ref : periodKeyOF(ref, lancMode);
+  const lref = periodoModo === 'ltm' ? ref : periodKeyOF(ref, periodoModo);
   if (chartLanc) chartLanc.destroy();
   if (detalhado) {
-    const { keys, byTip } = launchSeriesTipByMode(filtered, lancMode);
+    const { keys, byTip } = launchSeriesTipByMode(filtered, periodoModo);
     const q = quebra();
     const dsets = q.keys.filter(k => byTip[k].some(v => v > 0)).map(k => ({
       label: q.labels[k], data: byTip[k].map(v => Math.round(v)),
@@ -707,24 +821,24 @@ function renderCharts() {
     }));
     chartLanc = new Chart($('#chartLanc'), {
       type: 'bar',
-      data: { labels: keys.map(k => periodLabelOF(k, lancMode)), datasets: dsets },
+      data: { labels: keys.map(k => periodLabelOF(k, periodoModo)), datasets: dsets },
       plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: legendCfg, tooltip: { callbacks: {
-          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)}${lancMode === 'ltm' ? ' un. · últimos 12 meses' : ' un. lançadas'}`,
-          afterBody: items => items.length ? ['', ...launchTooltipList(keys[items[0].dataIndex], lancMode)] : [],
+          label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)}${periodoModo === 'ltm' ? ' un. · últimos 12 meses' : ' un. lançadas'}`,
+          afterBody: items => items.length ? ['', ...launchTooltipList(keys[items[0].dataIndex], periodoModo)] : [],
         } } },
         scales: { y: { stacked: true, grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
     });
   } else {
-    const lserie = launchSeriesByMode(filtered, lancMode);
+    const lserie = launchSeriesByMode(filtered, periodoModo);
     chartLanc = new Chart($('#chartLanc'), {
       type: 'bar',
-      data: { labels: lserie.map(x => periodLabelOF(x[0], lancMode)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
+      data: { labels: lserie.map(x => periodLabelOF(x[0], periodoModo)), datasets: [{ data: lserie.map(x => Math.round(x[1])), backgroundColor: lserie.map(x => x[0] === lref ? RED : BLUE), borderRadius: 3, maxBarThickness: 26 }] },
       plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
-        label: c => ' ' + fmtInt(c.parsed.y) + (lancMode === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas'),
-        afterBody: items => items.length ? ['', ...launchTooltipList(lserie[items[0].dataIndex][0], lancMode)] : [],
+        label: c => ' ' + fmtInt(c.parsed.y) + (periodoModo === 'ltm' ? ' unidades lançadas · últimos 12 meses' : ' unidades lançadas'),
+        afterBody: items => items.length ? ['', ...launchTooltipList(lserie[items[0].dataIndex][0], periodoModo)] : [],
       } } },
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
     });
@@ -1485,7 +1599,13 @@ function exportXlsx() {
   })));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tip), 'Tipologias');
   // Oferta mensal (agregada + por empreendimento)
-  const agg = monthlySeries(filtered).map(([mes, disp]) => ({ 'Mês': mes, 'Unidades disponíveis (total)': Math.round(disp) }));
+  // mesma composição da curva do dashboard: mercado (síntese) + lançamentos previstos
+  const mkAgg = new Map(monthlySeries(mercadoFiltrado()));
+  const agg = monthlySeries(filtered).map(([mes, disp]) => ({
+    'Mês': mes, 'Lançamentos previstos': Math.round(disp),
+    'Mercado (síntese)': Math.round(mkAgg.get(mes) || 0),
+    'Unidades disponíveis (total)': Math.round(disp + (mkAgg.get(mes) || 0)),
+  }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(agg), 'Oferta mensal');
   const porEmp = filtered.flatMap(e => (e.mensal || []).map(x => ({
     'Empreendimento': e.empreendimento, 'Mês': x.m, 'Disponíveis': x.disp, 'Vendidas no mês': x.vend, 'Distratadas no mês': x.distr,
@@ -2389,9 +2509,11 @@ $$('#incNivel button').forEach(b => b.onclick = () => {
   $$('#incNivel button').forEach(x => x.classList.toggle('active', x === b));
   renderIncorporadoras();
 });
-$$('#lancMode button').forEach(b => b.onclick = () => {
-  lancMode = b.dataset.mode;
-  $$('#lancMode button').forEach(x => x.classList.toggle('active', x === b));
+/* um só estado de período para os dois gráficos: os dois segs (estoque e lançamentos)
+   comandam a mesma variável e refletem a escolha um do outro */
+$$('#dispMode button, #lancMode button').forEach(b => b.onclick = () => {
+  periodoModo = b.dataset.mode;
+  $$('#dispMode button, #lancMode button').forEach(x => x.classList.toggle('active', x.dataset.mode === periodoModo));
   renderCharts();
 });
 $$('#viewMode button').forEach(b => b.onclick = () => {

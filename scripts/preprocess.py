@@ -13,6 +13,7 @@ import datetime
 import json
 import os
 import sys
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import defaultdict
@@ -43,6 +44,18 @@ def faixa_de(area):
 
 def _nan(v):
     return isinstance(v, float) and v != v
+
+
+def _norm(v):
+    """Chave de comparação de texto: maiúsculas, sem acento, espaços colapsados.
+
+    A síntese e o cadastro do portal grafam o mesmo bairro de jeitos diferentes
+    ('JARDIM ATLÂNTICO' x 'JARDIM ATLANTICO'). O filtro do dashboard compara
+    string exata, então o mercado é canonizado para a grafia do cadastro."""
+    if v is None or _nan(v):
+        return ''
+    s = unicodedata.normalize('NFKD', str(v)).encode('ascii', 'ignore').decode()
+    return ' '.join(s.upper().split())
 
 
 def clean(v):
@@ -123,6 +136,67 @@ def _montar_sem_previsao(registros):
     return out
 
 
+def _montar_mercado(merc, emps):
+    """Estoque do mercado (síntese) com dimensões -> array `mercado`.
+
+    Existe para o gráfico de estoque poder responder aos filtros SEM perder a base
+    do mercado: antes só saía `mercadoMensal` (uma série global, sem dimensão), então
+    qualquer filtro derrubava o mercado inteiro e a curva virava só a oferta futura.
+
+    Três decisões, todas com efeito nos números:
+      1. Só os meses da janela de projeção (do 1º mês da OF em diante). O gráfico
+         nunca mostra o histórico anterior e ele responde pela maior parte do peso.
+      2. Grafias canonizadas para o cadastro do portal ('JARDIM ATLANTICO' ->
+         'JARDIM ATLÂNTICO'): o filtro do front compara string exata.
+      3. Empreendimento que JÁ está na projeção sai daqui. Lançado no mês base, ele
+         aparece na síntese e na OF ao mesmo tempo; somar os dois contava as mesmas
+         unidades duas vezes em toda a janela.
+    """
+    if not merc:
+        return []
+    meses_of = sorted({x['m'] for e in emps.values() for x in e.get('mensal') or []})
+    mes_base = meses_of[0] if meses_of else None
+
+    canon = {}
+    for campo in ('bairro', 'incorporadora', 'tipo', 'macrozona'):
+        canon[campo] = {_norm(e.get(campo)): e.get(campo)
+                        for e in emps.values() if clean(e.get(campo)) is not None}
+    na_projecao = {_norm(e.get('empreendimento')) for e in emps.values()}
+
+    out, dupes, meses_vistos = [], [], set()
+    for (nome_k, _inc_k), r in sorted(merc.items()):
+        if nome_k in na_projecao:
+            dupes.append(r['empreendimento'])
+            continue
+        linhas_mes = [(m, v) for m, v in sorted(r['mensal'].items())
+                      if (mes_base is None or m >= mes_base) and v[0] > 0]
+        if not linhas_mes:
+            continue
+        meses_vistos.update(m for m, _ in linhas_mes)
+        out.append({
+            'id': 'mk-%d' % (len(out) + 1),
+            'empreendimento': r['empreendimento'],
+            'bairro': canon['bairro'].get(_norm(r['bairro']), r['bairro']),
+            'incorporadora': canon['incorporadora'].get(_norm(r['incorporadora']), r['incorporadora']),
+            'tipo': canon['tipo'].get(_norm(r['tipo']), r['tipo']),
+            'macrozona': canon['macrozona'].get(_norm(r['macrozona']), r['macrozona']),
+            'dtLancamento': r['dtLancamento'],
+            'mercado': True,
+            'tipologias': [t for _k, t in sorted(r['tips'].items(), key=lambda kv: str(kv[0]))],
+            'mensal': [{'m': m, 'disp': round(v[0], 1),
+                        'tip': {k: round(x, 1) for k, x in sorted(v[1].items()) if x},
+                        'fx': {k: round(x, 1) for k, x in sorted(v[2].items()) if x},
+                        'tf': {k: round(x, 1) for k, x in sorted(v[3].items()) if x}}
+                       for m, v in linhas_mes],
+        })
+    ini, fim = (min(meses_vistos), max(meses_vistos)) if meses_vistos else ('—', '—')
+    print(f'mercado (síntese) com dimensões: {len(out)} empreendimentos, {ini} -> {fim}')
+    if dupes:
+        print(f'  {len(set(dupes))} já estavam na projeção e saíram do mercado '
+              f'(evita dupla contagem): {", ".join(sorted(set(dupes))[:10])}')
+    return out
+
+
 def gerar_dados(header, linhas, fonte, sem_previsao=None):
     """Monta data/dados_of.js a partir de linhas no esquema da master.
 
@@ -135,10 +209,17 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
     idx = {h: i for i, h in enumerate(header)}
     emps = {}                                   # id_empreendimento -> dict
     tips = {}                                   # (emp, id_tipologia) -> dict
-    # emp -> mês -> [disp, vend, distr, {quartos: disp}, {faixa m²: disp}]
-    mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, defaultdict(float), defaultdict(float)]))
+    # emp -> mês -> [disp, vend, distr, {quartos: disp}, {faixa m²: disp}, {quartos|faixa: disp}]
+    # o cruzamento (tf) existe porque quartos e faixa são duas quebras das MESMAS
+    # unidades: com os dois filtros ativos, somar os dois vetores contaria duas vezes
+    mensal = defaultdict(lambda: defaultdict(
+        lambda: [0, 0, 0, defaultdict(float), defaultdict(float), defaultdict(float)]))
     hist = {}                                   # empreendimento de mercado -> dict
     mercado = defaultdict(float)                # mês -> estoque disponível da síntese
+    # mercado com dimensões: (nome, incorporadora) -> registro no formato de
+    # 'empreendimentos', para o gráfico de estoque poder filtrar a base do mercado
+    # pelos mesmos cortes (bairro, tipo, tipologia, faixa de m²...)
+    merc = {}
     n = 0
 
     for r in linhas:
@@ -169,7 +250,36 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
                 hrec['vend'][m] += v
             # estoque do mercado por mês (grão síntese, consórcio somado como na
             # planilha oficial — 13.107 un em 03/2026); alimenta a linha "Mercado"
-            mercado[m] += num(g('unidadesdisponiveis')) or 0
+            disp = num(g('unidadesdisponiveis')) or 0
+            mercado[m] += disp
+            # mesmo estoque, agora guardado com as dimensões do produto: em consórcio
+            # cada membro é um registro (o grão oficial do estoque inclui a incorporadora)
+            inc = clean(g('incorporadora'))
+            mrec = merc.setdefault((_norm(hname), _norm(inc)), {
+                'empreendimento': hname, 'incorporadora': inc,
+                'bairro': clean(g('bairro')), 'tipo': clean(g('TipoEmpreendimento')),
+                'macrozona': clean(g('macrozona')), 'dtLancamento': clean(g('dtlançamento')),
+                'tips': {},
+                'mensal': defaultdict(
+                    lambda: [0.0, defaultdict(float), defaultdict(float), defaultdict(float)]),
+            })
+            area = num(g('AreaPrivativa'))
+            trat = num(g('tipologia_tratada'))
+            # tipologias do produto: alimentam os filtros de tipologia e faixa de m²
+            tk = (trat, area)
+            if tk not in mrec['tips']:
+                mrec['tips'][tk] = {'tipologia': clean(g('tipologia')), 'tratada': trat,
+                                    'unids': num(g('TotalUnidades')) or 0, 'area': area}
+            cel = mrec['mensal'][m]
+            cel[0] += disp
+            try:
+                tq = min(max(int(float(trat or 0)), 0), 4)
+            except (TypeError, ValueError):
+                tq = 0
+            fx = faixa_de(area)
+            cel[1][str(tq)] += disp
+            cel[2][fx] += disp
+            cel[3][f'{tq}|{fx}'] += disp
             continue
 
         eid = str(int(eid)) if isinstance(eid, float) else str(eid)
@@ -233,8 +343,10 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
                 tq = min(max(int(float(g('tipologia_tratada') or 0)), 0), 4)
             except (TypeError, ValueError):
                 tq = 0
+            fx = faixa_de(num(g('AreaPrivativa')))
             cel[3][str(tq)] += disp
-            cel[4][faixa_de(num(g('AreaPrivativa')))] += disp
+            cel[4][fx] += disp
+            cel[5][f'{tq}|{fx}'] += disp
 
     print('linhas:', n, '| empreendimentos:', len(emps), '| tipologias:', len(tips))
 
@@ -245,7 +357,8 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
         emps[eid]['mensal'] = [
             {'m': m, 'disp': round(v[0], 1), 'vend': round(v[1], 2), 'distr': round(v[2], 2),
              'tip': {k: round(x, 1) for k, x in sorted(v[3].items()) if x},
-             'fx': {k: round(x, 1) for k, x in sorted(v[4].items()) if x}}
+             'fx': {k: round(x, 1) for k, x in sorted(v[4].items()) if x},
+             'tf': {k: round(x, 1) for k, x in sorted(v[5].items()) if x}}
             for m, v in sorted(mm.items())
         ]
 
@@ -260,9 +373,10 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
     sem_prev = _montar_sem_previsao(sem_previsao)
     if sem_prev:
         print('sem previsão:', len(sem_prev), 'empreendimentos (array semPrevisao)')
+    mercado_emps = _montar_mercado(merc, emps)
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
-            'semPrevisao': sem_prev,
+            'semPrevisao': sem_prev, 'mercado': mercado_emps,
             'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado.items())]}
     destino = os.path.join(BASE, 'data', 'dados_of.js')
     with open(destino, 'w', encoding='utf-8') as f:
