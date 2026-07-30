@@ -630,20 +630,38 @@ function renderCharts() {
   } else {
     const serie = monthlySeries(filtered);
     const refIdx = serie.findIndex(x => x[0] === ref);
+    const dsets = [{
+      label: 'Oferta futura', data: serie.map(x => Math.round(x[1])),
+      borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
+      pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
+      pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
+      pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
+      pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
+    }];
+    // linha do mercado (base síntese inteira, não obedece aos filtros): dá a régua
+    // do estoque total — 13.107 un na data base — ao lado da oferta futura
+    const mercMap = new Map(DATA.mercadoMensal || []);
+    const merc = serie.map(x => mercMap.has(x[0]) ? Math.round(mercMap.get(x[0])) : null);
+    if (merc.some(v => v != null)) dsets.push({
+      label: 'Mercado (síntese · toda a base)', data: merc,
+      borderColor: BLUE, backgroundColor: BLUE, fill: false, tension: .3, borderWidth: 2, borderDash: [6, 4],
+      spanGaps: false,
+      pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2),
+      pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : BLUE),
+      pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : BLUE),
+      pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
+    });
     chartDisp = new Chart($('#chartDisp'), {
       type: 'line',
-      data: { labels: serie.map(x => ymLabel(x[0])), datasets: [{
-        label: 'Unidades disponíveis', data: serie.map(x => Math.round(x[1])),
-        borderColor: NAVY, backgroundColor: 'rgba(12,31,85,.06)', fill: true, tension: .3, borderWidth: 2,
-        pointRadius: serie.map((x, i) => i === refIdx ? 6 : 2.5),
-        pointBackgroundColor: serie.map((x, i) => i === refIdx ? RED : NAVY),
-        pointBorderColor: serie.map((x, i) => i === refIdx ? '#fff' : NAVY),
-        pointBorderWidth: serie.map((x, i) => i === refIdx ? 2 : 1),
-      }]},
+      data: { labels: serie.map(x => ymLabel(x[0])), datasets: dsets },
       plugins: [dataLabelsPlugin],
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
-        label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''),
-        afterBody: items => items.length ? ['', ...dispTooltipList(serie[items[0].dataIndex][0])] : [],
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: dsets.length > 1 ? legendCfg : { display: false }, tooltip: { callbacks: {
+        label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${serie[c.dataIndex][0] === ref ? ' · mês de referência' : ''}`,
+        afterBody: items => {
+          const it = items.find(x => x.datasetIndex === 0);
+          return it ? ['', ...dispTooltipList(serie[it.dataIndex][0])] : [];
+        },
       } } },
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
@@ -2117,6 +2135,9 @@ function coNum(v) {
 }
 function coText(v) { if (v == null) return null; const s = String(v).trim(); return s === '' ? null : s; }
 
+/* cidades acompanhadas — precisa bater com CIDADES em scripts/converter_download_layout.py */
+const SINTESE_CIDADES = new Set(['GOIANIA', 'APARECIDA DE GOIANIA']);
+
 function planilhaParaLinhas(rowsAoA) {
   if (!rowsAoA.length) throw new Error('Planilha vazia.');
   const header = rowsAoA[0].map(h => textKey(h).toLowerCase().replace(/\s+/g, ''));
@@ -2124,17 +2145,50 @@ function planilhaParaLinhas(rowsAoA) {
   SINTESE_COLS.forEach(c => { idx[c] = header.indexOf(c.toLowerCase()); });
   const faltando = SINTESE_COLS.filter(c => idx[c] < 0);
   if (faltando.length) throw new Error('Colunas ausentes: ' + faltando.join(', '));
+  // export bruto do Brain (DownloadLayout): tem colunas de controle além das 23.
+  // Nele aplicamos o mesmo filtro de cidades do converter_download_layout.py —
+  // subir as 20 cidades pro banco distorce curvas e estoque (aconteceu uma vez).
+  const ehBrain = header.includes('importadorlayoutid') || header.includes('linkimagem');
   const linhas = [];
+  let foraCidade = 0;
   for (let r = 1; r < rowsAoA.length; r++) {
     const row = rowsAoA[r];
     if (!row || row.every(c => c == null || c === '')) continue; // pula linha em branco
+    if (ehBrain && !SINTESE_CIDADES.has(textKey(row[idx.cidade]))) { foraCidade++; continue; }
     linhas.push(SINTESE_COLS.map(c => {
       const v = row[idx[c]];
       return SINTESE_DATE.has(c) ? coDate(v) : SINTESE_NUM.has(c) ? coNum(v) : coText(v);
     }));
   }
   if (!linhas.length) throw new Error('Nenhuma linha de dados encontrada.');
-  return linhas;
+  return { linhas, ehBrain, foraCidade };
+}
+
+/* parser de CSV próprio (com aspas). O SheetJS convertia "01/04/2026" em 4 de
+   janeiro (padrão americano) e corrompeu as datas da base inteira uma vez —
+   texto do CSV agora chega intacto ao coDate, que trata dd/mm corretamente. */
+function csvParaAoA(texto) {
+  if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+  const linha1 = texto.slice(0, texto.indexOf('\n'));
+  const sep = (linha1.match(/;/g) || []).length >= (linha1.match(/,/g) || []).length ? ';' : ',';
+  const rows = [];
+  let row = [], cel = '', dentro = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (dentro) {
+      if (ch === '"') { if (texto[i + 1] === '"') { cel += '"'; i++; } else dentro = false; }
+      else cel += ch;
+    } else if (ch === '"') dentro = true;
+    else if (ch === sep) { row.push(cel); cel = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && texto[i + 1] === '\n') i++;
+      row.push(cel); cel = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else cel += ch;
+  }
+  if (cel !== '' || row.length) { row.push(cel); rows.push(row); }
+  return rows;
 }
 
 async function postUpload(payload) {
@@ -2148,12 +2202,23 @@ async function postUpload(payload) {
 
 async function enviarSintese(senha, file, setStatus) {
   setStatus('Lendo planilha…', '');
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true, blankrows: false });
-  const linhas = planilhaParaLinhas(aoa);
+  let aoa;
+  if (/\.csv$/i.test(file.name)) {
+    // CSV nunca passa pelo SheetJS: as datas dd/mm viravam mm/dd (americano)
+    aoa = csvParaAoA(await file.text());
+  } else {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+    aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null, raw: true, blankrows: false });
+  }
+  const { linhas, ehBrain, foraCidade } = planilhaParaLinhas(aoa);
   const total = linhas.length;
+  if (ehBrain) setStatus(`Export do Brain detectado: ${fmtInt(foraCidade)} linhas de outras cidades descartadas.`, '');
+  // a coluna 'data' da síntese é sempre o dia 1º do mês; qualquer outra coisa é
+  // parser trocando dia/mês (já corrompeu a base uma vez) — aborta antes do banco
+  const iData = SINTESE_COLS.indexOf('data');
+  const foraDia1 = linhas.filter(l => l[iData] && !/-01$/.test(l[iData])).length;
+  if (foraDia1 > total * 0.02)
+    throw new Error(`${fmtInt(foraDia1)} linhas com 'data' fora do dia 1º — datas suspeitas, upload abortado.`);
 
   setStatus(`Preparando envio de ${fmtInt(total)} linhas…`, '');
   await postUpload({ senha, action: 'init' });

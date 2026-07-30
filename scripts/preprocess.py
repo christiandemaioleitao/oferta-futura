@@ -88,6 +88,7 @@ def gerar_dados(header, linhas, fonte):
     # emp -> mês -> [disp, vend, distr, {quartos: disp}, {faixa m²: disp}]
     mensal = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, defaultdict(float), defaultdict(float)]))
     hist = {}                                   # empreendimento de mercado -> dict
+    mercado = defaultdict(float)                # mês -> estoque disponível da síntese
     n = 0
 
     for r in linhas:
@@ -116,6 +117,9 @@ def gerar_dados(header, linhas, fonte):
             v = num(g('unidadesvendidasmes')) or 0
             if v:
                 hrec['vend'][m] += v
+            # estoque do mercado por mês (grão síntese, consórcio somado como na
+            # planilha oficial — 13.107 un em 03/2026); alimenta a linha "Mercado"
+            mercado[m] += num(g('unidadesdisponiveis')) or 0
             continue
 
         eid = str(int(eid)) if isinstance(eid, float) else str(eid)
@@ -204,7 +208,8 @@ def gerar_dados(header, linhas, fonte):
     print('histórico mercado:', len(historico), 'empreendimentos')
 
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
-            'empreendimentos': list(emps.values()), 'historico': historico}
+            'empreendimentos': list(emps.values()), 'historico': historico,
+            'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado.items())]}
     destino = os.path.join(BASE, 'data', 'dados_of.js')
     with open(destino, 'w', encoding='utf-8') as f:
         f.write('window.OF_DATA=')
