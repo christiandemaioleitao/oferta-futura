@@ -159,7 +159,17 @@ function monthsBetween(a, b) { return (+b.slice(0, 4) - +a.slice(0, 4)) * 12 + (
 function salesAverages(emps) {
   const clusters = new Set(emps.map(e => e.cluster).filter(Boolean));
   const hist = (DATA.historico || []).filter(h => clusters.has(h.cluster));
-  if (!hist.length) return { avg: null, defl: null, n: 0 };
+  if (!hist.length) return { avg: null, defl: null, mes: null, n: 0 };
+  /* mes = agregado do contexto: unidades vendidas por mês SOMANDO todos os
+     empreendimentos do histórico dos clusters filtrados (total vendido ÷ meses
+     do intervalo). avg/defl seguem sendo a velocidade média de 1 empreendimento. */
+  let totalVend = 0, minM = null, maxM = null;
+  hist.forEach(h => {
+    h.vend.forEach(([, v]) => { totalVend += v; });
+    if (minM == null || h.minM < minM) minM = h.minM;
+    if (maxM == null || h.maxM > maxM) maxM = h.maxM;
+  });
+  const mes = totalVend / Math.max(1, monthsBetween(minM, maxM) + 1);
   let rates = [], ratesD = [];
   hist.forEach(h => {
     const start = (h.dtLancamento && h.dtLancamento.slice(0, 7) > h.minM) ? h.dtLancamento.slice(0, 7) : h.minM;
@@ -172,7 +182,7 @@ function salesAverages(emps) {
     ratesD.push(totalD / monthsD);
   });
   const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
-  return { avg: mean(rates), defl: mean(ratesD), n: hist.length };
+  return { avg: mean(rates), defl: mean(ratesD), mes, n: hist.length };
 }
 
 /* ---------- aplicação de filtros ---------- */
@@ -199,7 +209,7 @@ function renderKPIs() {
   $('#kpiCount').textContent = filtered.length;
   $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0));
   const m = salesAverages(filtered);
-  $('#kpiAvgSales').textContent = m.avg == null ? '—' : fmtDec(m.avg, 1);
+  $('#kpiAvgSales').textContent = m.mes == null ? '—' : fmtDec(m.mes, 1);
   $('#footUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—') + ' · Fonte: ' + (DATA.fonte || 'base importada');
 }
 
@@ -1129,7 +1139,7 @@ async function exportPdf() {
         <div class="k"><span>EMPREENDIMENTOS</span><b>${filtered.length}</b></div>
         <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
         <div class="k"><span>ÁREA DE TERRENO M²</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></div>
-        <div class="k accent"><span>MÉDIA MENSAL VENDAS</span><b>${m.avg == null ? '—' : fmtDec(m.avg, 1)}</b></div>
+        <div class="k accent"><span>UNIDS VENDIDAS/MÊS</span><b>${m.mes == null ? '—' : fmtDec(m.mes, 1)}</b></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div><p class="mono" style="font-size:10px;letter-spacing:.14em;color:${GRAY};margin-bottom:8px">OFERTA DISPONÍVEL POR MÊS</p><img class="pdf-img" src="${chartDisp.toBase64Image('image/png', 1)}" /></div>
@@ -1295,7 +1305,7 @@ function deckKpisHtml(emps, semPrevisao) {
     <div class="k"><span>EMPREENDIMENTOS</span><b>${emps.length}</b></div>
     <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(emps.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
     <div class="k"><span>ÁREA DE TERRENO M²</span><b>${areaTot}</b></div>
-    <div class="k accent"><span>MÉDIA MENSAL VENDAS</span><b>${m.avg == null ? '—' : fmtDec(m.avg, 1)}</b></div>
+    <div class="k accent"><span>UNIDS VENDIDAS/MÊS</span><b>${m.mes == null ? '—' : fmtDec(m.mes, 1)}</b></div>
   </div>`;
 }
 function deckTableHtml(emps, max = 11, semPrevisao) {
@@ -1442,8 +1452,9 @@ function exportXlsx() {
     ['Empreendimentos', filtered.length],
     ['Total de unidades', filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0)],
     ['Área de terreno (m²)', Math.round(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))],
-    ['Média mensal vendas (mercado)', m.avg == null ? '—' : +m.avg.toFixed(2)],
-    ['Média mensal vendas deflacionada', m.defl == null ? '—' : +m.defl.toFixed(2)],
+    ['Unids vendidas/mês (contexto do filtro)', m.mes == null ? '—' : +m.mes.toFixed(2)],
+    ['Média mensal por empreendimento (clusters)', m.avg == null ? '—' : +m.avg.toFixed(2)],
+    ['Média mensal por empreendimento deflacionada', m.defl == null ? '—' : +m.defl.toFixed(2)],
     ['Janela de lançamento', launchWindowLabel(filtered)],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), 'Resumo');
