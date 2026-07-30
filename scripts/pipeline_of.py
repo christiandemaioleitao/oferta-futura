@@ -107,6 +107,7 @@ SELECT
     c.Uf                      AS [Cidade.Uf],
     c.Regional                AS [Cidade.Regional],
     co.Id                     AS [Consorcio.Id],
+    co.Nome                   AS [Consorcio.Nome],
     t.Id                      AS [EmpreendimentoTipologia.Id],
     t.ConsideracaoOF          AS [EmpreendimentoTipologia.ConsideracaoOF]
 FROM dbo.EmpreendimentoTipologia t
@@ -329,7 +330,7 @@ SQL_SEM_PREVISAO = """
 SELECT
     ec.Id                 AS id,
     ec.Empreendimento     AS empreendimento,
-    i.Nome                AS incorporadora,
+    COALESCE(NULLIF(LTRIM(RTRIM(i.Nome)), ''), co.Nome) AS incorporadora,
     b.Nome                AS bairro,
     c.Nome                AS cidade,
     c.Uf                  AS uf,
@@ -349,6 +350,7 @@ FROM dbo.EmpreendimentoCadastro ec
 JOIN dbo.Cidade c        ON c.Id = ec.CidadeId
 LEFT JOIN dbo.Bairro b   ON b.Id = ec.BairroId
 LEFT JOIN dbo.Incorporadora i ON i.Id = ec.IncorporadoraId
+LEFT JOIN dbo.Consorcio co    ON co.Id = ec.ConsorcioId
 WHERE ec.Inativo = 0 AND c.Regional = 'GO'
   AND ec.DataLancamento IS NULL AND ec.DataPrevisaoLancamento IS NULL
 """
@@ -500,6 +502,12 @@ def main():
         'DescricaoDosPavimentos': 'descPavimentos',
         'Id_empreendimento': 'id_empreendimento',
     })
+    # incorporadora vazia cai no NOME do consórcio (ex.: PARQUE AMÉRICA TRANCOSO
+    # não tem incorporadora no cadastro, é o consórcio EBM/TROPICAL). Vale para o
+    # filtro, tabelas e ficha; incorpOUconsorcio registra o valor final na master.
+    vazio = df_of['incorporadora'].isna() | (df_of['incorporadora'].astype(str).str.strip() == '')
+    df_of['incorporadora'] = df_of['incorporadora'].where(~vazio, df_of['Consorcio.Nome'])
+    df_of['incorpOUconsorcio'] = df_of['incorporadora']
     df_of['dtlançamento'] = pd.to_datetime(
         df_of['DataLancamento'].fillna(df_of['DataPrevisaoLancamento']), errors='coerce')
     df_of = df_of[(df_of['dtlançamento'] >= dt_ini) & (df_of['dtlançamento'] <= dt_fim_mes)].copy()
