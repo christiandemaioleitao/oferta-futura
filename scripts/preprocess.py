@@ -74,13 +74,63 @@ def ym(v):
     return s[:7] if s else None
 
 
-def gerar_dados(header, linhas, fonte):
+def _montar_sem_previsao(registros):
+    """Terrenos monitorados sem data de lançamento/previsão -> array semPrevisao.
+
+    Entram no dados_of.js FORA de 'empreendimentos' de propósito: aparecem nos
+    filtros, no mapa e na tabela própria, mas nenhum indicador da projeção os vê.
+    dtLancamento/totalUnidades/tipologias/mensal ficam vazios (pedido do usuário:
+    não impactar KPIs, gráficos e janela de lançamento)."""
+    # NaT do pandas passa no isinstance(datetime) e explode no strftime do clean();
+    # NaT != NaT (como NaN), então o guard cobre os dois
+    cl = lambda v: None if v is None or v != v else clean(v)
+    out = []
+    for r in registros or []:
+        rid = r.get('id')
+        try:
+            rid = str(int(float(rid)))
+        except (TypeError, ValueError):
+            continue
+        out.append({
+            'id': 'sd-' + rid,
+            'empreendimento': cl(r.get('empreendimento')),
+            'incorporadora': cl(r.get('incorporadora')),
+            'bairro': cl(r.get('bairro')),
+            'cidade': cl(r.get('cidade')),
+            'uf': cl(r.get('uf')),
+            'tipo': cl(r.get('tipo')),
+            'macrozona': cl(r.get('macrozona')),
+            'lat': num(r.get('lat')) or None,
+            'lng': num(r.get('lng')) or None,
+            'logradouro': cl(r.get('logradouro')),
+            'complemento': cl(r.get('complemento')),
+            'areaTerreno': num(r.get('area_terreno')),
+            'totalUnidades': None,
+            'dtLancamento': None,
+            'observacao': cl(r.get('observacao')),
+            'projetoProtocolado': str(r.get('projeto_protocolado')).strip().lower() in ('true', '1', 'sim'),
+            'projetoAprovado': str(r.get('projeto_aprovado')).strip().lower() in ('true', '1', 'sim'),
+            'idProtocolo': cl(r.get('id_protocolo')),
+            'dataProtocolo': cl(r.get('data_protocolo')),
+            'dataAprovacao': cl(r.get('data_aprovacao')),
+            'linkProjeto': cl(r.get('link_projeto')),
+            'linkPortal': cl(r.get('link_portal')),
+            'fonteEmpreendimento': cl(r.get('fonte_empreendimento')),
+            'tipologias': [],
+            'mensal': [],
+            'semData': True,
+        })
+    return out
+
+
+def gerar_dados(header, linhas, fonte, sem_previsao=None):
     """Monta data/dados_of.js a partir de linhas no esquema da master.
 
     header: lista de nomes de coluna. linhas: iterável de tuplas na mesma ordem.
     A master tem grão duplo: linhas com id_empreendimento são a projeção da oferta
     futura (grão tipologia x mês); linhas sem id são o histórico de mercado
     (síntese), agregado aqui em médias mensais de venda por empreendimento.
+    sem_previsao: registros da SQL_SEM_PREVISAO -> array separado no OF_DATA.
     """
     idx = {h: i for i, h in enumerate(header)}
     emps = {}                                   # id_empreendimento -> dict
@@ -207,8 +257,12 @@ def gerar_dados(header, linhas, fonte):
     } for h in hist.values()]
     print('histórico mercado:', len(historico), 'empreendimentos')
 
+    sem_prev = _montar_sem_previsao(sem_previsao)
+    if sem_prev:
+        print('sem previsão:', len(sem_prev), 'empreendimentos (array semPrevisao)')
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
+            'semPrevisao': sem_prev,
             'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado.items())]}
     destino = os.path.join(BASE, 'data', 'dados_of.js')
     with open(destino, 'w', encoding='utf-8') as f:
@@ -309,9 +363,9 @@ def gerar_mapa(kmz_path=KMZ_PADRAO):
     return len(features)
 
 
-def gerar_de_dataframe(df, fonte, kmz_path=KMZ_PADRAO):
+def gerar_de_dataframe(df, fonte, kmz_path=KMZ_PADRAO, sem_previsao=None):
     """Caminho usado pelo pipeline: master em memória, sem passar por Excel."""
-    gerar_dados(list(df.columns), df.itertuples(index=False, name=None), fonte)
+    gerar_dados(list(df.columns), df.itertuples(index=False, name=None), fonte, sem_previsao=sem_previsao)
     gerar_mapa(kmz_path)
 
 

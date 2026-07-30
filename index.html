@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20260730-1426" />
+<link rel="stylesheet" href="css/style.css?v=20260730-1900" />
 </head>
 <body>
 
@@ -204,6 +204,34 @@
     <div class="table-scroll"><table class="pivot conc-table" id="concTable"></table></div>
   </section>
 
+  <!-- ================= RADAR SEM PREVISÃO (terrenos monitorados) ================= -->
+  <section class="radar card">
+    <div class="card__head radar__head">
+      <div><h2 data-editable>Radar sem previsão de lançamento</h2><small data-editable>Terrenos monitorados ainda sem data prevista ou produto estimado · não entram nos indicadores</small></div>
+      <div class="radar__tools">
+        <span class="mono" id="semPrevCount" style="color:var(--gray-600);font-size:11px"></span>
+        <div class="search-box"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="semPrevSearch" placeholder="Buscar" class="mono" /></div>
+      </div>
+    </div>
+    <div class="table-scroll radar__scroll">
+      <table class="radar-table" id="semPrevTable">
+        <thead>
+          <tr>
+            <th class="mono th-center">PORTAL</th>
+            <th class="mono th-center">PROJETO</th>
+            <th class="mono" data-sort="empreendimento">EMPREENDIMENTO <i class="sort-ind">↑</i></th>
+            <th class="mono" data-sort="incorporadora">INCORPORADORA</th>
+            <th class="mono" data-sort="bairro">BAIRRO</th>
+            <th class="mono th-num" data-sort="areaTerreno">M² TERRENO</th>
+            <th class="mono" data-sort="dataProtocolo">PROTOCOLO</th>
+            <th class="mono" data-sort="dataAprovacao">APROVAÇÃO</th>
+          </tr>
+        </thead>
+        <tbody id="semPrevBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <footer class="foot">
     <span class="mono" data-editable>EBM Inteligência · Dados que orientam decisões</span>
     <span class="mono" id="footUpdated">Atualizado em —</span>
@@ -307,17 +335,17 @@
 <div id="pdfStage" aria-hidden="true"></div>
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
-<script src="data/dados_of.js?v=20260730-1426"></script>
-<script src="data/mapa_of.js?v=20260730-1426"></script>
-<script src="data/bairros_of.js?v=20260730-1426"></script>
+<script src="data/dados_of.js?v=20260730-1900"></script>
+<script src="data/mapa_of.js?v=20260730-1900"></script>
+<script src="data/bairros_of.js?v=20260730-1900"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
-<script src="data/plano_diretor.js?v=20260730-1426"></script>
+<script src="data/plano_diretor.js?v=20260730-1900"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20260730-1426"></script>
+<script src="js/app.js?v=20260730-1900"></script>
 </body>
 </html>

@@ -125,7 +125,8 @@ document.addEventListener('click', () => $$('.ms.open').forEach(x => x.classList
 
 function uniqueVals(fn) {
   const set = new Map();
-  DATA.empreendimentos.forEach(e => { const v = fn(e); if (v != null && v !== '') set.set(String(v), String(v)); });
+  // os sem previsão entram nas opções: dá para filtrar um terreno sem data e vê-lo no mapa
+  DATA.empreendimentos.concat(semDataEmps || []).forEach(e => { const v = fn(e); if (v != null && v !== '') set.set(String(v), String(v)); });
   return [...set.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR')).map(v => ({ id: v, label: v }));
 }
 function buildFilters() {
@@ -179,7 +180,7 @@ function applyAll() {
   filtered = DATA.empreendimentos.filter(e => empMatches(e));
   $('#filtersSummary').textContent = filtersSummaryText();
   renderKPIs(); renderMap(); renderCharts(); renderPivot(); renderRadar();
-  renderIncorporadoras(); renderConcentracao();
+  renderIncorporadoras(); renderConcentracao(); renderSemPrev();
 }
 
 function launchWindowLabel(emps) {
@@ -216,8 +217,11 @@ function distM(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
-/* terrenos sem data de lançamento/previsão — vêm do Neon (tabela dedicada) sob demanda */
-let semDataEmps = null, semDataOn = false, semDataLayer = null;
+/* terrenos sem data de lançamento/previsão — o pipeline embute em OF_DATA.semPrevisao
+   (campos de lançamento/unidades em branco de propósito: indicadores não os veem);
+   o fetch do Neon fica só como fallback para uma base antiga sem o array */
+let semDataEmps = (window.OF_DATA && OF_DATA.semPrevisao && OF_DATA.semPrevisao.length) ? OF_DATA.semPrevisao : null;
+let semDataOn = !!semDataEmps, semDataLayer = null;
 const SEM_DATA_COLOR = '#8A93A6';
 async function loadSemDataEmps() {
   if (semDataEmps) return semDataEmps;
@@ -239,14 +243,18 @@ async function loadSemDataEmps() {
 /* universo de empreendimentos: os da projeção + os sem previsão, quando a camada está ligada.
    Serve para achar a ficha pelo id — não é lista de exibição, não filtra. */
 function allEmps() {
-  return semDataOn && semDataEmps ? DATA.empreendimentos.concat(semDataEmps) : DATA.empreendimentos;
+  // ficha, radar sem previsão e vínculo KMZ enxergam os sem-data mesmo com a camada desligada
+  return semDataEmps ? DATA.empreendimentos.concat(semDataEmps) : DATA.empreendimentos;
 }
 /* Terrenos sem previsão ignoram só o filtro de período de lançamento — não têm data.
    Bairro, incorporadora, tipo e macrozona valem normalmente; tipologia e faixa de m²
    excluem esses terrenos, porque um terreno sem tipologia não pode casar com elas. */
+function semDataBase() {
+  // tabela "sem previsão": segue os filtros (menos o de período), ignora o toggle do mapa
+  return (semDataEmps || []).filter(e => empMatches(e, false));
+}
 function semDataFiltrados() {
-  if (!semDataOn || !semDataEmps) return [];
-  return semDataEmps.filter(e => empMatches(e, false));
+  return semDataOn ? semDataBase() : [];
 }
 function empById(id) {
   return allEmps().find(x => x.id === id);
@@ -328,6 +336,8 @@ function initMap() {
   pontoLayer = L.layerGroup();
   bairroLayer = L.layerGroup();
   semDataLayer = L.layerGroup();
+  // com os sem previsão embutidos no OF_DATA a camada nasce ligada (e filtrável)
+  if (semDataOn) { map.addLayer(semDataLayer); const c = $('#lyrSemData'); if (c) c.checked = true; }
   renderBairros();
   $('#lyrEmp').onchange = e => e.target.checked ? map.addLayer(empLayer) : map.removeLayer(empLayer);
   $('#lyrSemData').onchange = async e => {
@@ -880,8 +890,8 @@ function renderPivot() {
 /* ---------- radar (tabela) ---------- */
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07l-1.6 1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14 10a5 5 0 0 0-7.07 0l-2.83 2.83a5 5 0 0 0 7.07 7.07l1.59-1.59" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 function sortedRows() {
+  // só a projeção: os sem previsão têm a própria tabela no fim do dashboard
   let rows = filtered;
-  rows = rows.concat(semDataFiltrados());
   if (searchTerm) { const q = textKey(searchTerm); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
   return [...rows].sort((a, b) => cmpOrd(a[sortKey], b[sortKey], sortAsc));
 }
@@ -911,6 +921,40 @@ $$('#radarTable th[data-sort]').forEach(th => th.onclick = () => {
   /* texto e data começam em A→Z / mais antigo; número começa do maior */
   if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = !th.classList.contains('th-num'); }
   renderRadar();
+});
+
+/* ---------- radar dos sem previsão (última tabela do dashboard) ---------- */
+let spSortKey = 'empreendimento', spSortAsc = true, spSearch = '';
+function renderSemPrev() {
+  const body = $('#semPrevBody'); if (!body) return;
+  let rows = semDataBase();
+  if (spSearch) { const q = textKey(spSearch); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
+  rows = [...rows].sort((a, b) => cmpOrd(a[spSortKey], b[spSortKey], spSortAsc));
+  const sub = $('#semPrevCount');
+  if (sub) sub.textContent = rows.length + ' terreno' + (rows.length === 1 ? '' : 's') + ' monitorado' + (rows.length === 1 ? '' : 's');
+  body.innerHTML = rows.map(e => `<tr data-id="${e.id}">
+    <td class="td-center">${e.linkPortal ? `<a class="link-ico" href="${escapeHtml(e.linkPortal)}" target="_blank" rel="noopener" title="Abrir no portal" onclick="event.stopPropagation()">${LINK_SVG}</a>` : `<span class="link-ico off">${LINK_SVG}</span>`}</td>
+    <td class="td-center">${e.linkProjeto ? `<a class="link-ico" href="${escapeHtml(e.linkProjeto)}" target="_blank" rel="noopener" title="Acompanhamento do projeto" onclick="event.stopPropagation()">${LINK_SVG}</a>` : `<span class="link-ico off">${LINK_SVG}</span>`}</td>
+    <td><span class="rt-name">${escapeHtml(e.empreendimento)}</span></td>
+    <td class="rt-txt">${escapeHtml(e.incorporadora || '—')}</td>
+    <td class="rt-txt">${escapeHtml(e.bairro || '—')}</td>
+    <td class="rt-num">${fmtInt(e.areaTerreno)}</td>
+    <td class="rt-date">${dateBR(e.dataProtocolo) || (e.projetoProtocolado ? 'Protocolado' : '—')}</td>
+    <td class="rt-date">${dateBR(e.dataAprovacao) || (e.projetoAprovado ? 'Aprovado' : '—')}</td>
+  </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:30px">Nenhum terreno sem previsão para os filtros atuais.</td></tr>`;
+  $$('#semPrevBody tr[data-id]').forEach(tr => {
+    tr.querySelector('.rt-name')?.addEventListener('click', () => openFichaModal(tr.dataset.id));
+    tr.addEventListener('click', ev => { if (ev.target.closest('a, .rt-name')) return; locateOnMap(tr.dataset.id); });
+  });
+  const ind = $('#semPrevTable .sort-ind'); if (ind) ind.remove();
+  const th = $(`#semPrevTable th[data-sort="${spSortKey}"]`);
+  if (th) th.insertAdjacentHTML('beforeend', ` <i class="sort-ind">${spSortAsc ? '↑' : '↓'}</i>`);
+}
+$('#semPrevSearch')?.addEventListener('input', e => { spSearch = e.target.value; renderSemPrev(); });
+$$('#semPrevTable th[data-sort]').forEach(th => th.onclick = () => {
+  const k = th.dataset.sort;
+  if (spSortKey === k) spSortAsc = !spSortAsc; else { spSortKey = k; spSortAsc = !th.classList.contains('th-num'); }
+  renderSemPrev();
 });
 
 /* ---------- ficha (tooltip redesign) ---------- */
@@ -1951,6 +1995,7 @@ function statsIncorporadoras(emps) {
     a.filhos.push({
       nome: e.empreendimento || '—', id: e.id, projetos: 1, unidades: e.totalUnidades || 0,
       protocolo: emProtocolo ? 1 : 0, aprovados: aprovado ? 1 : 0, lancados: lancado ? 1 : 0,
+      dataProtocolo: e.dataProtocolo || null, dataAprovacao: e.dataAprovacao || null,
       medianaAprov: prazo, mediaAprov: prazo,
     });
   });
@@ -1977,6 +2022,9 @@ function renderIncorporadoras() {
     { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
     { k: 'protocolo', label: 'EM PROTOCOLO', num: true }, { k: 'aprovados', label: 'APROVADOS', num: true },
     { k: 'lancados', label: 'LANÇADOS', num: true },
+    /* datas só existem na linha de empreendimento; no nível incorporadora a célula fica em branco.
+       Ordenar por elas ordena os empreendimentos DENTRO de cada incorporadora (ISO ordena como texto). */
+    { k: 'dataProtocolo', label: 'DATA PROTOCOLO' }, { k: 'dataAprovacao', label: 'DATA APROVAÇÃO' },
     { k: 'medianaAprov', label: 'APROV. MEDIANA', num: true }, { k: 'mediaAprov', label: 'APROV. MÉDIA', num: true },
   ];
   const celulas = (l, nivel) => `
@@ -1986,6 +2034,8 @@ function renderIncorporadoras() {
       <td class="num">${nivel ? marca(l.protocolo) : (l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>')}</td>
       <td class="num">${nivel ? marca(l.aprovados) : (l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>')}</td>
       <td class="num">${nivel ? marca(l.lancados) : fmtInt(l.lancados)}</td>
+      <td class="num">${nivel ? (dateBR(l.dataProtocolo) || '—') : ''}</td>
+      <td class="num">${nivel ? (dateBR(l.dataAprovacao) || '—') : ''}</td>
       <td class="num">${meses(l.medianaAprov)}</td>
       <td class="num">${meses(l.mediaAprov)}</td>`;
   const html = cabecalhoOrdenavel('incTable', cols) + '<tbody>' + linhasArvore(linhas, celulas)
@@ -1994,6 +2044,7 @@ function renderIncorporadoras() {
       <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
       <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
       <td class="num">${fmtInt(tot.lancados)}</td>
+      <td></td><td></td>
       <td class="num">${meses(mediana(tot.prazos))}</td><td class="num">${meses(media(tot.prazos))}</td>
     </tr></tbody>`;
   alvo.innerHTML = html;

@@ -347,6 +347,10 @@ SELECT
     ec.Observacao         AS observacao,
     ec.ProjetoProtocolado AS projeto_protocolado,
     ec.ProjetoAprovado    AS projeto_aprovado,
+    ec.IdProtocoloProjeto AS id_protocolo,
+    ec.DataProtocoloProjeto AS data_protocolo,
+    ec.DataAprovacao      AS data_aprovacao,
+    ec.LinkDoProjeto      AS link_projeto,
     ec.FonteEmpreendimento AS fonte_empreendimento
 FROM dbo.EmpreendimentoCadastro ec
 JOIN dbo.Cidade c        ON c.Id = ec.CidadeId
@@ -473,7 +477,7 @@ def main():
     pg = neon_connect()
     df_s = ler_sintese_neon(pg)
     df_of = ler_empreendimentos_sql()
-    gravar_sem_previsao(pg)
+    df_sem_prev = gravar_sem_previsao(pg)
 
     # -------- etapa 1: curvas por cluster (síntese) --------
     df_s['datalancamento'] = pd.to_datetime(df_s['datalancamento'], errors='coerce')
@@ -629,7 +633,10 @@ def main():
 
     # -------- gera dados do dashboard --------
     print('Gerando dados do dashboard...')
-    preprocess.gerar_de_dataframe(df_master, fonte='projecao_of (Neon)')
+    # os sem previsão entram no dados_of.js num array separado (semPrevisao): aparecem
+    # nos filtros, no mapa e na tabela própria SEM tocar os indicadores da projeção
+    preprocess.gerar_de_dataframe(df_master, fonte='projecao_of (Neon)',
+                                  sem_previsao=df_sem_prev.to_dict('records'))
     atualizar_cache_buster()
     print('Pipeline concluído.')
 
