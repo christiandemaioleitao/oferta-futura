@@ -27,6 +27,84 @@ const statusEmp = e => {
 let DATA = window.OF_DATA || { empreendimentos: [], historico: [], geradoEm: '', fonte: '' };
 let MAPA = window.OF_MAPA || { features: [] };
 let filtered = [];
+
+/* ============================================================
+   Configuração compartilhada — /api/config (Neon)
+   Os textos do lápis e o KMZ importado moravam no localStorage: valiam só para
+   quem editou, no navegador em que editou, e sumiam ao trocar de máquina. Agora
+   a fonte da verdade é o banco, então quem abrir o site depois vê o mesmo.
+   ============================================================ */
+const CFG_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/config' : 'https://oferta-futura.vercel.app/api/config';
+let SITE_CFG = {}, SITE_CFG_QUANDO = {};
+let senhaSessao = '';   // vive só na memória da aba — senha de servidor não vai para o localStorage
+const cfgPronta = carregarConfig();
+async function carregarConfig() {
+  try {
+    const r = await fetch(CFG_ENDPOINT, { cache: 'no-store' });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    SITE_CFG = j.config || {};
+    SITE_CFG_QUANDO = j.atualizado || {};
+  } catch (err) {
+    // sem o servidor o dashboard continua de pé com os padrões do repositório
+    console.warn('configuração compartilhada indisponível:', err.message || err);
+  }
+  return SITE_CFG;
+}
+function pedirSenha(acao) {
+  if (senhaSessao) return senhaSessao;
+  const s = prompt(`Senha para ${acao}.\nÉ a mesma do upload da síntese, e a mudança passa a valer para TODOS os usuários.`);
+  if (s === null) throw new Error('cancelado');
+  senhaSessao = s.trim();
+  return senhaSessao;
+}
+async function salvarConfig(chave, valor, opts = {}) {
+  const senha = pedirSenha(opts.acao || 'salvar a alteração');
+  const corpo = { senha, chave, ...(opts.apagar ? { apagar: true } : opts.patch ? { patch: valor } : { valor }) };
+  const r = await fetch(CFG_ENDPOINT, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) {
+    if (r.status === 401) senhaSessao = '';   // senha errada não fica grudada na sessão
+    throw new Error(j.error || `HTTP ${r.status}`);
+  }
+  return j;
+}
+/* troca o mapa e refaz o vínculo geometria ↔ empreendimento */
+const MAPA_PADRAO = window.OF_MAPA || { features: [] };   // o que o pipeline gerou
+function aplicarMapa(geojson) {
+  MAPA = geojson;
+  linkKmzFeatures();
+  renderKmzLayers();
+  atualizarStatusMapa();
+}
+function atualizarStatusMapa() {
+  const st = $('#importStatus'), linha = $('#restaurarMapaRow');
+  const cfg = SITE_CFG.mapa_kmz;
+  if (st) {
+    const q = SITE_CFG_QUANDO.mapa_kmz ? dateBR(String(SITE_CFG_QUANDO.mapa_kmz).slice(0, 10)) : '';
+    st.textContent = cfg
+      ? `MAPA IMPORTADO · ${cfg.arquivo || 'KMZ'}${q ? ' · ' + q : ''} · ${MAPA.features.length} GEOMETRIAS`
+      : '';
+  }
+  if (linha) linha.hidden = !cfg;   // só oferece "restaurar" quando há o que restaurar
+}
+function initRestaurarMapa() {
+  const btn = $('#restaurarMapaBtn'); if (!btn) return;
+  btn.onclick = async e => {
+    e.stopPropagation();
+    if (!confirm('Voltar ao mapa gerado pelo pipeline?\nO KMZ importado será removido para todos os usuários.')) return;
+    try {
+      await salvarConfig('mapa_kmz', null, { apagar: true, acao: 'remover o mapa importado' });
+      delete SITE_CFG.mapa_kmz; delete SITE_CFG_QUANDO.mapa_kmz;
+      aplicarMapa(MAPA_PADRAO);
+      const st = $('#importStatus'); if (st) st.textContent = 'MAPA RESTAURADO PARA O DO PIPELINE';
+    } catch (err) {
+      if (String(err.message) !== 'cancelado') alert('Não foi possível restaurar: ' + err.message);
+    }
+  };
+}
 let sortKey = 'dtLancamento', sortAsc = true, searchTerm = '';
 /* limite superior é exclusivo: 70 m² cai em 70 – 100, não em 50 – 70 */
 const FAIXAS = [
@@ -416,6 +494,7 @@ function updateBairroLayer() {
   }
 }
 function renderKmzLayers() {
+  if (!terrenoLayer || !pontoLayer) return;   // config pode chegar antes do initMap()
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
   const porId = Object.fromEntries(allEmps().map(e => [e.id, e]));
   visibleKmzFeatures().forEach(f => {
@@ -1229,13 +1308,22 @@ async function importKmz(file) {
       if (!entry) throw new Error('KMZ sem arquivo KML interno');
       kmlText = await entry.async('text');
     }
-    MAPA = parseKml(kmlText);
-    linkKmzFeatures();
-    renderKmzLayers();
-    st.textContent = `MAPA ATUALIZADO · ${MAPA.features.length} GEOMETRIAS DO KMZ`;
+    const novo = parseKml(kmlText);
+    if (!novo.features.length) throw new Error('nenhuma geometria encontrada no arquivo');
+    /* grava ANTES de trocar o mapa da tela: se a senha estiver errada ou o servidor
+       recusar, o usuário continua vendo o mapa que já estava lá em vez de uma
+       importação que parece ter dado certo e some no F5 */
+    st.textContent = 'SALVANDO NO SERVIDOR…';
+    const guardado = { arquivo: file.name, geojson: novo };
+    const resp = await salvarConfig('mapa_kmz', guardado, { acao: 'publicar este mapa' });
+    // espelha o que foi gravado: é daqui que sai o rótulo e o botão "Restaurar"
+    SITE_CFG.mapa_kmz = guardado;
+    SITE_CFG_QUANDO.mapa_kmz = resp.atualizado_em;
+    aplicarMapa(novo);
+    st.textContent = `MAPA ATUALIZADO PARA TODOS · ${novo.features.length} GEOMETRIAS`;
   } catch (err) {
     console.error(err);
-    st.textContent = 'ERRO AO IMPORTAR KMZ: ' + err.message;
+    st.textContent = 'ERRO AO IMPORTAR KMZ: ' + (err.message || err);
   }
 }
 $('#btnImportKmz').onclick = () => $('#fileKmz').click();
@@ -1841,31 +1929,57 @@ ligarCampoMes(campoMes('fltTo', MESES_LANC), v => { state.to = v; applyAll(); })
 /* ============================================================
    Edição de textos com lápis (portado de leadsebm2.0)
    ============================================================ */
+/* Senha fraca de conveniência, só para o que fica no navegador de quem clica
+   (a chave de API do chat). O que muda o site para todo mundo — textos e mapa —
+   usa a senha do servidor, em pedirSenha(). */
 function requireEditPassword() { return prompt('Digite a senha para editar:') === '123'; }
+/* O id vem do atributo (data-editable="mapa-titulo"), não do texto do elemento.
+   Derivar do texto amarrava a edição salva à redação original: bastava alguém
+   mexer no index.html para a edição virar órfã e a tela voltar ao padrão. */
 function initEditableText() {
   const nodes = $$('[data-editable]').filter(el => !el.dataset.editReady);
   nodes.forEach((el, i) => {
-    const id = 'txt-' + i + '-' + textKey(el.textContent).slice(0, 24).replace(/\W/g, '');
-    const saved = localStorage.getItem('ofDashboardText:' + id);
-    if (saved) el.textContent = saved;
+    const id = el.getAttribute('data-editable') || 'txt-' + i;
     el.dataset.editReady = '1'; el.dataset.editId = id;
     const wrap = document.createElement('span'); wrap.className = 'editable-wrap';
     const target = document.createElement('span'); target.className = 'editable-target'; target.textContent = el.textContent;
     const pencil = document.createElement('button');
     pencil.type = 'button'; pencil.className = 'edit-pencil'; pencil.title = 'Editar texto'; pencil.setAttribute('aria-label', 'Editar texto'); pencil.textContent = '✎';
     el.textContent = ''; el.appendChild(wrap); wrap.appendChild(target); wrap.appendChild(pencil);
-    pencil.onclick = e => {
+    pencil.onclick = async e => {
       e.preventDefault(); e.stopPropagation();
-      if (!requireEditPassword()) { alert('Senha incorreta.'); return; }
       target.classList.add('text-editing');
-      const next = prompt('Editar texto:', target.textContent);
+      const next = prompt('Editar texto (a mudança vale para todos os usuários):', target.textContent);
       target.classList.remove('text-editing');
-      if (next === null) return;
+      if (next === null || next === target.textContent) return;
+      const anterior = target.textContent;
       target.textContent = next;
-      localStorage.setItem('ofDashboardText:' + id, next);
-      if (el.matches('.top__title')) document.title = 'EBM Inteligência | ' + next;
+      aplicarTituloDaPagina();
+      try {
+        // patch: o servidor mescla no objeto, então dois usuários editando títulos
+        // diferentes ao mesmo tempo não apagam a edição um do outro
+        await salvarConfig('textos', { [id]: next }, { patch: true, acao: 'editar este texto' });
+        SITE_CFG.textos = { ...(SITE_CFG.textos || {}), [id]: next };
+      } catch (err) {
+        target.textContent = anterior;         // não deixa na tela o que não foi gravado
+        aplicarTituloDaPagina();
+        if (String(err.message) !== 'cancelado') alert('Não foi possível salvar: ' + err.message);
+      }
     };
   });
+  aplicarTextosSalvos();
+}
+/* aplica o que veio do banco sobre os textos do HTML */
+function aplicarTextosSalvos() {
+  const textos = SITE_CFG.textos || {};
+  $$('[data-editable]').forEach(el => {
+    const t = textos[el.dataset.editId];
+    const alvo = el.querySelector('.editable-target');
+    if (t != null && alvo) alvo.textContent = t;
+  });
+  aplicarTituloDaPagina();
+}
+function aplicarTituloDaPagina() {
   const h1 = $('.top__title .editable-target');
   if (h1) document.title = 'EBM Inteligência | ' + h1.textContent;
 }
@@ -2627,6 +2741,16 @@ initEditableText();
 initAIChat();
 initSettingsPanel();
 initSinteseUpload();
+initRestaurarMapa();
+/* a configuração vem do servidor e chega depois do primeiro render: aplicar aqui
+   evita segurar a página inteira esperando a rede — a tela aparece com os padrões
+   do repositório e é corrigida assim que o banco responde */
+cfgPronta.then(() => {
+  aplicarTextosSalvos();
+  const km = SITE_CFG.mapa_kmz;
+  if (km && km.geojson && (km.geojson.features || []).length) aplicarMapa(km.geojson);
+  else atualizarStatusMapa();
+});
 initPlanoDiretor();
 initExpandir();
 ligarLarguras('radarTable');   // thead do radar é estático; as demais religam a cada render

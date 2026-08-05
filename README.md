@@ -25,6 +25,8 @@ index.html                 aplicação (single page)
 css/style.css              design system
 js/app.js                  filtros, mapa, gráficos, PDF, imports, chat, edição
 api/sql.js                 função serverless: consulta somente-leitura ao Neon
+api/config.js              função serverless: config compartilhada (textos e mapa importado)
+api/upload-sintese.js      função serverless: substitui sintese_consolidada no Neon
 data/dados_of.js           window.OF_DATA   — empreendimentos + tipologias + série mensal
 data/mapa_of.js            window.OF_MAPA   — GeoJSON dos terrenos/pontos do KMZ
 data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já coloridos
@@ -406,16 +408,17 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Radar** | Primeira tabela da página, com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
 | **Ficha** | Origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
 | **Exportar** | PDF (relatório com mapa e as seis tabelas do painel), PDF Apresentação (deck por macrozona, faixa de m², segmento e **terrenos sem previsão**), Excel (5 abas) e KMZ — todos respeitando os filtros. Nenhum dos dois PDFs trunca tabela: o excedente vira as páginas `(1/3)`, `(2/3)`… (ver §14c). |
-| **Importar** | Excel no esquema da master e KMZ/KML do Google Earth, reconstruindo o dashboard no navegador. |
+| **Importar** | KMZ/KML do Google Earth. O mapa importado é **gravado no banco**: quem abrir o site depois vê a mesma geometria (ver §17). |
 | **Chat de IA** | Consulta o Neon: o modelo escreve o SQL, o dashboard executa via `/api/sql` e devolve as linhas (até 3 consultas encadeadas). Suporta OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq, Together e OpenRouter, com campo para digitar qualquer id de modelo. |
-| **Edição ✎** | Títulos e textos editáveis (senha `123`), persistidos no `localStorage`. O dock de configurações liga/desliga os lápis e os rótulos dos gráficos. |
+| **Edição ✎** | Títulos e subtítulos editáveis, **gravados no banco** e válidos para todos os usuários (senha do servidor — ver §17). O dock de configurações liga/desliga os lápis e os rótulos dos gráficos. |
 
 ### Segurança
 
 - **Nunca commitar chave de API em `js/app.js`** — o arquivo é servido ao navegador. A chave do chat é do usuário e fica só no `localStorage` dele.
 - `/api/sql` aceita apenas `SELECT`/`WITH`, uma instrução por chamada, no máximo 200 linhas, e só responde às origens do próprio site.
-- A senha `123` protege a edição de textos no navegador; não é controle de acesso.
-- `/api/upload-sintese` é o único endpoint de **escrita**. Fica desligado até `SINTESE_UPLOAD_SENHA` existir na Vercel; a senha é conferida no servidor e nunca aparece no JS. Ainda assim é público — use senha forte.
+- A senha `123` protege só o painel da chave de API do chat, que fica no navegador de quem clica; não é controle de acesso.
+- `/api/upload-sintese` e `/api/config` são os endpoints de **escrita**, os dois atrás de `SINTESE_UPLOAD_SENHA`. Ficam desligados até a variável existir na Vercel; a senha é conferida no servidor e nunca aparece no JS. Ainda assim são públicos — use senha forte.
+- `/api/config` responde `GET` sem senha: é o mesmo conteúdo que o site já mostra. A escrita aceita só as chaves `textos` e `mapa_kmz` — endpoint público de escrita não pode receber nome de chave arbitrário.
 
 ## 16. Upload da síntese pelo dashboard
 
@@ -430,3 +433,57 @@ Por que não é um `INSERT` direto: o navegador não fala com o Postgres, e a Ve
 | `commit` | troca atômica (bloco `DO`): `DROP` da viva + `RENAME` da staging; grava `of_meta` |
 
 A troca só acontece no `commit`, num único statement atômico — se o upload falhar no meio, a `sintese_consolidada` viva continua intacta. **A base bruta muda, mas o dashboard não**: rode o pipeline depois para recalcular `projecao_of` e os `data/*.js`.
+
+## 17. Textos e mapa ficam no banco, não no navegador
+
+Os títulos editados pelo lápis e o KMZ importado moravam no `localStorage`. Funcionava
+— para uma pessoa, num navegador só. Quem abrisse o site de outra máquina via os
+textos originais e o mapa do pipeline, e limpar o cache apagava tudo. Não é o que
+"editar o dashboard" deveria significar num painel compartilhado.
+
+Agora a fonte da verdade é a tabela `site_config` no Neon, servida por `/api/config`:
+
+| Chave | Conteúdo |
+|---|---|
+| `textos` | objeto `{ id-do-elemento: texto }` — só o que foi editado |
+| `mapa_kmz` | `{ arquivo, geojson }` do KMZ importado |
+
+O boot **não espera** a rede: a página renderiza com os padrões do repositório e é
+corrigida quando o banco responde. Se o endpoint estiver fora, o dashboard abre
+normalmente com os textos do HTML e o mapa do pipeline — degradar para o padrão é
+melhor que uma tela em branco.
+
+### O id do texto vem do HTML, não do texto
+
+Cada elemento editável carrega o próprio id: `data-editable="mapa-titulo"`. Antes o id
+era derivado do conteúdo (`textKey(el.textContent)` + índice), e isso amarrava a edição
+salva à redação original — bastava alguém mexer no `index.html`, ou o próprio pipeline
+reescrever a página, para a edição virar órfã e a tela voltar ao padrão sem erro nenhum.
+**Ao adicionar um elemento editável novo, dê um slug a ele**; sem o atributo o código cai
+no índice posicional, que volta a ser frágil.
+
+### Escrita usa a senha do servidor
+
+Editar um título passou a mudar o site para todo mundo, então o gate é a mesma
+`SINTESE_UPLOAD_SENHA` do upload da síntese — conferida no servidor, nunca no JS. A senha
+é pedida uma vez por aba e fica só na memória (`senhaSessao`): gravá-la no `localStorage`
+deixaria uma senha de servidor no disco do usuário.
+
+Edições simultâneas não se atropelam: o cliente manda `patch` e o **servidor** mescla com
+`jsonb ||`. Dois usuários editando títulos diferentes ao mesmo tempo mantêm as duas
+mudanças — mandar o objeto inteiro faria o último a salvar apagar a edição do outro.
+
+### O mapa importado tem prioridade sobre o do pipeline
+
+Havendo `mapa_kmz` no banco, ele substitui `data/mapa_of.js`. Isso é intencional (foi
+uma importação manual, deliberada), mas significa que **o pipeline atualiza o mapa e
+ninguém vê**. Por isso a barra de ações mostra `MAPA IMPORTADO · arquivo · data` e o dock
+de configurações ganha **Mapa importado → Restaurar**, que apaga a chave e devolve o mapa
+do pipeline para todos.
+
+A importação grava **antes** de trocar o mapa na tela: se a senha estiver errada ou o
+servidor recusar, o usuário continua vendo o mapa que já estava lá, em vez de uma
+importação que parece ter dado certo e some no F5 — que era exatamente o sintoma antigo.
+
+Limite de 3,5 MB por chave (a Vercel Hobby corta perto de 4,5 MB). O KMZ atual do
+projeto ocupa 200 KB como GeoJSON, com folga larga.
