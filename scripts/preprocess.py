@@ -4,15 +4,14 @@ Gera os arquivos de dados do dashboard Oferta Futura:
   data/dados_of.js  -> window.OF_DATA  (empreendimentos + tipologias + série mensal)
   data/mapa_of.js   -> window.OF_MAPA  (GeoJSON dos terrenos e pontos do KMZ)
 
-Usado de duas formas:
-  - pelo pipeline, que chama gerar_dados()/gerar_mapa() com a master já em memória;
-  - na mão, a partir de um Excel no mesmo esquema de colunas:
-      python scripts/preprocess.py [caminho_xlsx] [caminho_kmz]
+Biblioteca do pipeline: `pipeline_of.py` chama gerar_de_dataframe() com a master
+já em memória. Não roda sozinho — o caminho antigo, que lia um Excel intermediário
+em fontes/, saiu junto com o próprio Excel: era um retrato congelado da base e
+regenerar o dashboard a partir dele publicava dados velhos sem avisar.
 """
 import datetime
 import json
 import os
-import sys
 import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
@@ -20,15 +19,15 @@ from collections import defaultdict
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTES = os.path.join(BASE, 'fontes')
-XLSX_PADRAO = os.path.join(FONTES, 'Projecao_OF.xlsx')
 KMZ_PADRAO = os.path.join(FONTES, 'Oferta Futura - 2026.kmz')
 
 NS = {'k': 'http://www.opengis.net/kml/2.2'}
 KML = '{http://www.opengis.net/kml/2.2}'
 
 # faixas de área privativa — precisam bater com FAIXAS em js/app.js
-FAIXAS = [('f1', 0, 50), ('f2', 50, 70), ('f3', 70, 90),
-          ('f4', 90, 120), ('f5', 120, 160), ('f6', 160, float('inf'))]
+FAIXAS = [('f1', 0, 50), ('f2', 50, 70), ('f3', 70, 100), ('f4', 100, 130),
+          ('f5', 130, 190), ('f6', 190, 230), ('f7', 230, 290),
+          ('f8', 290, 350), ('f9', 350, float('inf'))]
 
 
 def faixa_de(area):
@@ -483,17 +482,8 @@ def gerar_de_dataframe(df, fonte, kmz_path=KMZ_PADRAO, sem_previsao=None):
     gerar_mapa(kmz_path)
 
 
-def main():
-    xlsx = sys.argv[1] if len(sys.argv) > 1 else XLSX_PADRAO
-    kmz = sys.argv[2] if len(sys.argv) > 2 else KMZ_PADRAO
-    import openpyxl
-    print('Lendo', xlsx)
-    ws = openpyxl.load_workbook(xlsx, read_only=True, data_only=True)['Sheet1']
-    linhas = ws.iter_rows(values_only=True)
-    header = [str(h) for h in next(linhas)]
-    gerar_dados(header, linhas, os.path.basename(xlsx))
-    gerar_mapa(kmz)
-
-
 if __name__ == '__main__':
-    main()
+    raise SystemExit(
+        'preprocess.py é uma biblioteca do pipeline, não um script.\n'
+        'Para regenerar os data/*.js rode: python scripts/pipeline_of.py'
+    )

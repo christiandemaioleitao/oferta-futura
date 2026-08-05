@@ -36,7 +36,7 @@ jobs:
 
       # versões fixas: o tratamento de nulos do pipeline muda de comportamento entre releases do pandas
       - name: Instalar dependências
-        run: pip install "pandas==2.3.1" "numpy==2.3.1" "openpyxl==3.1.5" "pymssql==2.3.2" "psycopg2-binary==2.9.12"
+        run: pip install "pandas==2.3.1" "numpy==2.3.1" "pymssql==2.3.2" "psycopg2-binary==2.9.12"
 
       - name: Rodar pipeline
         env:

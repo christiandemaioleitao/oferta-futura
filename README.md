@@ -31,12 +31,13 @@ data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já colo
 data/plano_diretor.js      índice das 22 camadas do Plano Diretor (leve)
 data/plano_diretor/        uma camada por arquivo, baixada só quando ligada
 scripts/pipeline_of.py     pipeline: SQL Server + Neon → projeção → Neon + data/
-scripts/preprocess.py      monta data/dados_of.js e data/mapa_of.js
+scripts/preprocess.py      biblioteca do pipeline: monta data/dados_of.js e data/mapa_of.js
 scripts/of_common.py       conexões e utilitários compartilhados
 scripts/upload_sintese.py  sobe a planilha da síntese para o Neon (uso pontual)
+scripts/converter_download_layout.py  export DownloadLayout do Brain → fontes/sintese_consolidada.csv.gz
 scripts/gen_bairros.py     converte o KMZ de bairros em data/bairros_of.js (sob demanda)
 scripts/gen_plano_diretor.py  converte o KMZ do Plano Diretor em data/plano_diretor/ (sob demanda)
-fontes/                    arquivos originais (KMZ, xlsx, pbix, referências de design)
+fontes/                    arquivos originais (KMZ, pbix, síntese, referências de design)
 .github/workflows/pipeline-of.yml   execução mensal e manual do pipeline
 ```
 
@@ -121,11 +122,9 @@ Para rodar de novo, use **Run workflow** na aba Actions (ou o `workflow_dispatch
 python scripts/pipeline_of.py
 ```
 
-Ou, a partir de um Excel já pronto no esquema da master:
-
-```bash
-python scripts/preprocess.py "fontes/Projecao_OF.xlsx" "fontes/Oferta Futura - 2026.kmz"
-```
+Único caminho. O atalho antigo — `preprocess.py` lendo `fontes/Projecao_OF.xlsx` —
+foi removido junto com o Excel: era um retrato congelado da master, e regenerar o
+dashboard a partir dele republicava dados velhos sem nenhum aviso.
 
 ---
 
@@ -229,6 +228,15 @@ Os gráficos podem ser quebrados por tipologia (1Q–4Q e comercial) ou por faix
 
 Faixa de m² tem o balde **`f0` — "sem área informada"**. Sem ele, as tipologias sem `AreaPrivativa` sumiam do gráfico e a soma das faixas ficava 434 unidades abaixo do total. Vale a mesma regra da tipologia: um balde para o desconhecido é melhor que descartar a linha.
 
+As faixas são nove, com limite superior **exclusivo** (70 m² cai em 70–100, não em 50–70):
+
+| | | | | | | | | |
+|---|---|---|---|---|---|---|---|---|
+| `f1` | `f2` | `f3` | `f4` | `f5` | `f6` | `f7` | `f8` | `f9` |
+| < 50 | 50–70 | 70–100 | 100–130 | 130–190 | 190–230 | 230–290 | 290–350 | > 350 |
+
+> **A lista existe em dois lugares e os dois precisam mudar juntos:** `FAIXAS` em `js/app.js` (rótulos, filtro e cores) e `FAIXAS` em `scripts/preprocess.py` (o balde `fx` gravado em cada mês). Mexer só no front deixa o gráfico Detalhado lendo chaves que não existem nos dados — sem erro no console, só faixas vazias. **Depois de mudar as faixas, rode o pipeline**: os baldes já gravados são os antigos até a próxima execução.
+
 ### 12. O filtro de período recorta o eixo do tempo
 
 Com Jan–Jun/26 selecionado, os gráficos mostram só esses 6 meses — e não os 18 meses de projeção de cada produto lançado na janela. O filtro define a janela de análise inteira, não só quais empreendimentos entram.
@@ -237,7 +245,7 @@ Com Jan–Jun/26 selecionado, os gráficos mostram só esses 6 meses — e não 
 
 É a única tabela que **não** obedece ao filtro global de período de lançamento — os demais filtros (bairro, incorporadora, tipo, tipologia, macrozona, faixa) ela obedece normalmente.
 
-O recorte dela é sobre **protocolo e aprovação**: com Jan/25 → Jan/26 selecionado, entram os projetos protocolados **ou** aprovados nesse intervalo. As colunas seguem o mesmo critério — `aprovados` = aprovação dentro da janela; `em protocolo` = protocolado na janela e ainda sem aprovação nela. Sem janela, ambas caem no status atual do projeto, e aí as flags `ProjetoProtocolado`/`ProjetoAprovado` valem quando a data está em branco.
+O recorte dela é sobre **protocolo e aprovação**, e é um **OU**, não um E: com Jan/25 → Jan/26 selecionado, entra todo projeto cujo protocolo **ou** cuja aprovação caia no intervalo — basta uma das duas datas (`baseIncorporadoras`). Conferido na base de ago/2026 com a janela 2026: 23 projetos entram, sendo 5 só por protocolo, 16 só por aprovação e 2 pelos dois. As colunas seguem o mesmo critério — `aprovados` = aprovação dentro da janela; `em protocolo` = protocolado na janela e ainda sem aprovação nela. Sem janela, ambas caem no status atual do projeto, e aí as flags `ProjetoProtocolado`/`ProjetoAprovado` valem quando a data está em branco.
 
 "Lançado" é medido contra o **início do período da tabela**: `dtLancamento <= incFrom`. Sem período, a régua é o mês de referência (mês atual). Isso mantém a leitura estável: ao analisar 2027, o que foi lançado em 2026 já é passado.
 
@@ -289,6 +297,8 @@ Isso é diferente da régua da tabela por incorporadora ([13. Desempenho por inc
 Eles não têm data de lançamento, então o filtro de período não se aplica — mas todos os outros sim: bairro, incorporadora, tipo e macrozona filtram normalmente (`semDataFiltrados()` chama o mesmo `empMatches(e, false)` da tabela de incorporadoras). Tipologia e faixa de m² **excluem** esses terrenos, e isso é intencional: um terreno sem tipologia cadastrada não pode casar com um filtro de tipologia, e fingir que casa inflaria a contagem.
 
 Vale para os três lugares onde eles aparecem: as linhas do radar, os marcadores cinza do mapa e as geometrias do KMZ.
+
+**A tabela (e os dois PDFs) mostra só terrenos com "QD" no nome** — `QD 65, PARQUE OESTE INDUSTRIAL`, `QD10, RES VILLAGE CAMPOS VERDES`. É o recorte que o cadastro usa para área ainda sem produto definido; o resto da lista são frentes e glebas de outra natureza. São 142 dos 163 registros. O casamento é `\bQD` sem o `\b` final de propósito: `QD10` vem grudado em parte da base. **O mapa continua mostrando todos** — um terreno monitorado é um terreno monitorado, e escondê-lo do mapa esconderia ocupação real do território.
 
 ### 13g. Coluna do canvas trava o grid ao voltar da tela cheia
 
@@ -347,6 +357,33 @@ Curvas por cluster em 18M de vida: `1Q` 92% (produto de investidor, quase esgota
 
 A base da síntese vem do export DownloadLayout do Brain, convertido por `scripts/converter_download_layout.py` (filtra **Goiânia + Aparecida de Goiânia**, mantém as linhas de consórcio) e subido ao Neon pelo workflow **Upload Síntese Consolidada**.
 
+### 14c. Os dois PDFs não truncam nada
+
+Os dois botões de exportação seguem a mesma regra: **nenhuma tabela é cortada**. O que não cabe numa página vira a próxima, e o título ganha o sufixo `(1/3)`, `(2/3)`, `(3/3)`. Antes o deck imprimia 11 linhas por corte e fechava com "+ 24 empreendimentos — lista completa no dashboard": um slide que parecia completo e não era. `paginar()` e `sufixoPag()` servem os dois exportadores.
+
+**Relatório** (botão *Exportar PDF*) — 40 páginas na base de ago/2026, sem filtro:
+
+| | Seção | Paginação |
+|---|---|---|
+| capa | título, emitido em, empreendimentos, janela | — |
+| 01 | síntese: KPIs, os dois gráficos e os filtros aplicados | 1 |
+| 02 | mapa georreferenciado | 1 |
+| 03 | radar de empreendimentos | 16 linhas/página |
+| 04 | unidades por tipologia (árvore inteira, indentada) | 18 linhas/página |
+| 05 | desempenho por incorporadora | 18 linhas/página |
+| 06 | concentração por bairro/macrozona/incorporadora | 18 linhas/página |
+| 07 | radar sem previsão de lançamento | 16 linhas/página |
+
+As seções 04–06 reaproveitam a **mesma árvore que está na tela**: `renderPivot`, `renderIncorporadoras` e `renderConcentracao` foram partidos em `dadosX()` + `renderX()`, e o PDF chama o `dadosX()`. Nível de drill, ordenação e filtros ativos saem iguais aos do painel — não é uma segunda implementação que pode divergir. `achatarArvore()` expande todos os níveis (o PDF não tem clique para abrir grupo) e o recuo marca a hierarquia.
+
+**Capa:** só logotipo, título e os metadados objetivos. Saíram o *eyebrow* ("EBM INTELIGÊNCIA — RELATÓRIO EXECUTIVO"), a linha "Documento / Relatório de Oferta Futura" e os chips de filtro — que agora vivem no rodapé da página 01, onde a informação continua útil sem competir com o título. O grafismo de rede é desenhado com um azul **mais claro que o fundo** (`#4C6CB4`): com `NAVY7` sobre o navy da capa, a trama existia no SVG e sumia na rasterização.
+
+### 14d. O mapa dos slides usa zoom fracionário
+
+Os tiles só existem em zoom inteiro, e escolher o maior inteiro que coubesse deixava até 2× de folga — o recorte saía pequeno no meio do slide. Agora o zoom ideal é calculado como float (`zf`), os tiles vêm do inteiro **acima** e são reduzidos por `s = 2^(zf−z) ≤ 1`. Reduzir mantém nitidez; ampliar borraria. Raios e espessuras são divididos por `s` para ficarem constantes na imagem final.
+
+A margem caiu de 16% para 4% do bbox, e a captura passou a ter exatamente a proporção da caixa do slide (2030×1120 para 1015×560), então o `object-fit: cover` não corta ponto nenhum. Na base sem filtro: zoom 12,59 (era 12 inteiro), todos os 76 pontos dentro da imagem, ocupando 93% da altura.
+
 ### 15. Ponto vermelho e LTM
 
 O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `PontoMesReferencia` do BI. No modo LTM, cada ponto é a soma móvel dos 12 meses anteriores.
@@ -368,7 +405,7 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Tabelas** | Todas ordenam pelo cabeçalho (texto A→Z, número do maior; segundo clique inverte) e têm **largura de coluna arrastável** pela borda direita do cabeçalho — duplo clique restaura. As hierárquicas abrem os empreendimentos do grupo, e o clique numa linha de empreendimento centraliza o mapa. |
 | **Radar** | Primeira tabela da página, com busca e ordenação. Clique no **nome** abre a ficha; clique na **linha** centraliza o empreendimento no mapa. |
 | **Ficha** | Origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
-| **Exportar** | PDF (relatório), PDF Apresentação (deck por macrozona, faixa, segmento e **terrenos sem previsão de lançamento**), Excel (5 abas) e KMZ — todos respeitando os filtros. |
+| **Exportar** | PDF (relatório com mapa e as seis tabelas do painel), PDF Apresentação (deck por macrozona, faixa de m², segmento e **terrenos sem previsão**), Excel (5 abas) e KMZ — todos respeitando os filtros. Nenhum dos dois PDFs trunca tabela: o excedente vira as páginas `(1/3)`, `(2/3)`… (ver §14c). |
 | **Importar** | Excel no esquema da master e KMZ/KML do Google Earth, reconstruindo o dashboard no navegador. |
 | **Chat de IA** | Consulta o Neon: o modelo escreve o SQL, o dashboard executa via `/api/sql` e devolve as linhas (até 3 consultas encadeadas). Suporta OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq, Together e OpenRouter, com campo para digitar qualquer id de modelo. |
 | **Edição ✎** | Títulos e textos editáveis (senha `123`), persistidos no `localStorage`. O dock de configurações liga/desliga os lápis e os rótulos dos gráficos. |

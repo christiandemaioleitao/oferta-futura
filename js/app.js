@@ -28,13 +28,17 @@ let DATA = window.OF_DATA || { empreendimentos: [], historico: [], geradoEm: '',
 let MAPA = window.OF_MAPA || { features: [] };
 let filtered = [];
 let sortKey = 'dtLancamento', sortAsc = true, searchTerm = '';
+/* limite superior é exclusivo: 70 m² cai em 70 – 100, não em 50 – 70 */
 const FAIXAS = [
   { id: 'f1', label: 'Até 50 m²', min: 0, max: 50 },
   { id: 'f2', label: '50 – 70 m²', min: 50, max: 70 },
-  { id: 'f3', label: '70 – 90 m²', min: 70, max: 90 },
-  { id: 'f4', label: '90 – 120 m²', min: 90, max: 120 },
-  { id: 'f5', label: '120 – 160 m²', min: 120, max: 160 },
-  { id: 'f6', label: '160 m² ou mais', min: 160, max: 1e9 },
+  { id: 'f3', label: '70 – 100 m²', min: 70, max: 100 },
+  { id: 'f4', label: '100 – 130 m²', min: 100, max: 130 },
+  { id: 'f5', label: '130 – 190 m²', min: 130, max: 190 },
+  { id: 'f6', label: '190 – 230 m²', min: 190, max: 230 },
+  { id: 'f7', label: '230 – 290 m²', min: 230, max: 290 },
+  { id: 'f8', label: '290 – 350 m²', min: 290, max: 350 },
+  { id: 'f9', label: '350 m² ou mais', min: 350, max: 1e9 },
 ];
 const state = { from: '', to: '', empreendimento: new Set(), macrozona: new Set(), bairro: new Set(), incorporadora: new Set(), tipo: new Set(), tipologia: new Set(), faixa: new Set() };
 
@@ -264,6 +268,12 @@ function semDataBase() {
   // tabela "sem previsão": segue os filtros (menos o de período), ignora o toggle do mapa
   return (semDataEmps || []).filter(e => empMatches(e, false));
 }
+/* Só terrenos cujo nome traz a quadra ("QD 65, …", "QD10, …"): é o recorte que o
+   cadastro usa para área ainda sem produto definido. Sem o \b final para pegar
+   também "QD10" grudado. Vale para a tabela e para os dois PDFs — o relatório
+   precisa espelhar o que está na tela. */
+const EH_QD = e => /\bQD/.test(textKey(e.empreendimento));
+const semPrevTabela = () => semDataBase().filter(EH_QD);
 function semDataFiltrados() {
   return semDataOn ? semDataBase() : [];
 }
@@ -557,7 +567,9 @@ let detalhado = false, detMode = 'tip';
 const TIP_KEYS = ['1', '2', '3', '4', '0', 'sem'];
 const TIP_LABELS = { '0': 'COMERCIAL', '1': '1Q', '2': '2Q', '3': '3Q', '4': '4Q+', sem: 'SEM TIPOLOGIA INFORMADA' };
 const TIP_COLORS = { '1': '#9DB2D9', '2': '#5B79B4', '3': '#3A5AA0', '4': '#0C1F55', '0': '#C8102E', sem: '#98A2B3' };
-const FAIXA_COLORS = { f1: '#C3D0E8', f2: '#9DB2D9', f3: '#6E8CC4', f4: '#3A5AA0', f5: '#1B336E', f6: '#0C1F55', f0: '#98A2B3' };
+/* rampa navy do claro ao escuro: 9 faixas + o balde de área não informada */
+const FAIXA_COLORS = { f1: '#CFDAEE', f2: '#B4C5E3', f3: '#9AB0D7', f4: '#7F9BCB', f5: '#6486BF',
+  f6: '#4A6FAF', f7: '#35558F', f8: '#213C73', f9: '#0C1F55', f0: '#98A2B3' };
 const tipKeyOf = t => {
   const v = t != null && t.tratada !== undefined ? t.tratada : t;
   if (v == null || v === '') return 'sem';
@@ -978,7 +990,9 @@ function ligarArvore(id, aoClicarFolha) {
    Hierarquia tipo de empreendimento → incorporadora → empreendimento.
    O seletor de nível (drill) re-agrega a tabela começando na dimensão escolhida. */
 let pivotNivel = 0;   // 0=tipo, 1=incorporadora, 2=empreendimento
-function renderPivot() {
+/* a montagem dos dados fica separada do desenho porque o PDF reaproveita a mesma
+   árvore — o relatório precisa sair idêntico ao que está na tela */
+function dadosPivot() {
   const cols = [...new Set(filtered.flatMap(e => (e.tipologias || []).map(t => String(t.tratada != null ? t.tratada : t.tipologia))))].sort();
   const cell = (e, c) => (e.tipologias || []).filter(t => String(t.tratada != null ? t.tratada : t.tipologia) === c).reduce((s, t) => s + (t.unids || 0), 0);
   const somar = filhos => Object.fromEntries(cols.map(c => [c, filhos.reduce((s, f) => s + f.vals[c], 0)]));
@@ -1003,13 +1017,17 @@ function renderPivot() {
   const valor = (r, k) => k === 'g' ? r.nome : k === 'total' ? r.total : r.vals[k];
   const gtot = Object.fromEntries(cols.map(c => [c, linhas.reduce((s, l) => s + l.vals[c], 0)]));
   const gsum = linhas.reduce((s, l) => s + l.total, 0);
-  const ordenadas = ordenarArvore(linhas, 'pivotTable', valor);
+  const rotulo = ['TIPO / INCORPORADORA / EMPREENDIMENTO', 'INCORPORADORA / EMPREENDIMENTO', 'EMPREENDIMENTO'][pivotNivel];
+  return { cols, linhas: ordenarArvore(linhas, 'pivotTable', valor), gtot, gsum, rotulo };
+}
+function renderPivot() {
+  const { cols, linhas: ordenadas, gtot, gsum, rotulo } = dadosPivot();
   const celula = v => v ? fmtInt(v) : '·';
   const celulas = (n, nivel) => `<td>${escapeHtml(n.nome)}</td>`
     + cols.map(c => `<td>${celula(n.vals[c])}</td>`).join('')
     + `<td>${nivel === 0 ? `<b>${fmtInt(n.total)}</b>` : fmtInt(n.total)}</td>`;
   const html = cabecalhoOrdenavel('pivotTable', [
-    { k: 'g', label: ['TIPO / INCORPORADORA / EMPREENDIMENTO', 'INCORPORADORA / EMPREENDIMENTO', 'EMPREENDIMENTO'][pivotNivel] },
+    { k: 'g', label: rotulo },
     ...cols.map(c => ({ k: c, label: escapeHtml(rotuloTipologia(c)), num: true })),
     { k: 'total', label: 'TOTAL', num: true },
   ]) + '<tbody>' + linhasArvore(ordenadas, celulas)
@@ -1060,7 +1078,7 @@ $$('#radarTable th[data-sort]').forEach(th => th.onclick = () => {
 let spSortKey = 'empreendimento', spSortAsc = true, spSearch = '';
 function renderSemPrev() {
   const body = $('#semPrevBody'); if (!body) return;
-  let rows = semDataBase();
+  let rows = semPrevTabela();
   if (spSearch) { const q = textKey(spSearch); rows = rows.filter(e => [e.empreendimento, e.bairro, e.incorporadora].some(v => textKey(v).includes(q))); }
   rows = [...rows].sort((a, b) => cmpOrd(a[spSortKey], b[spSortKey], spSortAsc));
   const sub = $('#semPrevCount');
@@ -1223,6 +1241,30 @@ async function importKmz(file) {
 $('#btnImportKmz').onclick = () => $('#fileKmz').click();
 $('#fileKmz').onchange = e => { if (e.target.files[0]) importKmz(e.target.files[0]); e.target.value = ''; };
 
+/* ---------- helpers compartilhados pelos dois PDFs ----------
+   Nenhuma tabela é truncada: o que não cabe numa página vira a próxima, e o título
+   ganha o sufixo (1/3, 2/3, 3/3) pedido no relatório. */
+const paginar = (itens, porPagina) => {
+  const total = Math.max(1, Math.ceil(itens.length / porPagina));
+  return Array.from({ length: total }, (_, i) => ({
+    itens: itens.slice(i * porPagina, (i + 1) * porPagina), n: i + 1, total,
+  }));
+};
+const sufixoPag = p => p.total > 1 ? ` (${p.n}/${p.total})` : '';
+/* achata a árvore das tabelas hierárquicas preservando o nível, para indentar no PDF */
+function achatarArvore(nos, nivel = 0, out = []) {
+  (nos || []).forEach(n => { out.push({ no: n, nivel }); achatarArvore(n.filhos, nivel + 1, out); });
+  return out;
+}
+const recuo = nivel => nivel ? ` style="padding-left:${9 + nivel * 15}px"` : '';
+const pdfTabela = (cols, corpo) => `<table class="pdf-table"><thead><tr>${
+  cols.map(c => `<th${c.r ? ' class="r"' : ''}>${c.label}</th>`).join('')}</tr></thead><tbody>${corpo}</tbody></table>`;
+const pdfCabecalho = (num, titulo, sub) => `<div class="pdf-h"><span class="n">${num}</span><h2>${escapeHtml(titulo)}</h2></div>`
+  + (sub ? `<p class="mono" style="font-size:10px;letter-spacing:.12em;color:${GRAY};margin:-14px 0 16px">${escapeHtml(sub.toUpperCase())}</p>` : '');
+/* grafismo de rede da marca na capa: sobre o navy escuro só aparece num azul mais
+   claro que o fundo — com NAVY7 a trama sumia no PDF */
+const capaTrama = el => makeField(el, { w: 1123, h: 794, n: 68, color: '#4C6CB4', dist: 290, lineOp: .8, dotOp: .95 });
+
 /* ---------- exportação PDF ---------- */
 async function exportPdf() {
   const overlay = $('#pdfOverlay'), status = $('#pdfStatus');
@@ -1235,30 +1277,32 @@ async function exportPdf() {
     const m = salesAverages(filtered);
     const today = new Date().toLocaleDateString('pt-BR');
     const title = ($('.top__title .editable-target')?.textContent || $('.top__title')?.textContent || 'Oferta Futura').trim();
-    const chips = filtersSummaryText().split('  ·  ').map(c => `<span class="chip">${escapeHtml(c)}</span>`).join('');
-    // capa
+    let pag = 1;
+    const add = html => {
+      const el = document.createElement('div');
+      el.className = 'pdf-page';
+      el.innerHTML = html + `<div class="pdf-foot"><span>EBM Inteligência · Dados que orientam decisões</span><span>${today} · pág. ${++pag}</span></div>`;
+      stage.appendChild(el);
+    };
+    // ---- capa ----
     const cover = document.createElement('div');
     cover.className = 'pdf-page pdf-cover';
     cover.innerHTML = `<svg class="pdf-net" id="pdfNet" preserveAspectRatio="xMidYMid slice"></svg>
       <div style="position:relative">
         <div style="display:inline-block;background:#fff;border-radius:12px;padding:14px 20px;margin-bottom:34px"><img src="${logoSrc()}" style="height:46px;width:100px;display:inline" /></div>
-        <div class="eyebrow">EBM INTELIGÊNCIA — RELATÓRIO EXECUTIVO</div>
         <h1>${escapeHtml(title)}</h1>
-        <div class="pdf-filters">${chips}</div>
       </div>
       <div class="pdf-meta">
-        <div>Documento<b>Relatório de Oferta Futura</b></div>
         <div>Emitido em<b>${today}</b></div>
         <div>Empreendimentos<b>${filtered.length}</b></div>
         <div>Janela<b>${launchWindowLabel(filtered)}</b></div>
       </div>`;
     stage.appendChild(cover);
-    makeField(cover.querySelector('#pdfNet'), { w: 1123, h: 794, n: 40, color: NAVY7, dist: 240, lineOp: .3, dotOp: .4 });
-    // página síntese
-    const p2 = document.createElement('div');
-    p2.className = 'pdf-page';
-    p2.innerHTML = `<div class="pdf-h"><span class="n">01</span><h2>Síntese da oferta filtrada</h2></div>
-      <div class="pdf-kpis">
+    capaTrama(cover.querySelector('#pdfNet'));
+    // ---- 01 síntese (os filtros saíram da capa e vivem aqui) ----
+    const chips = filtersSummaryText().split('  ·  ').map(c => `<span class="chip">${escapeHtml(c)}</span>`).join('');
+    add(pdfCabecalho('01', 'Síntese da oferta filtrada')
+      + `<div class="pdf-kpis">
         <div class="k"><span>EMPREENDIMENTOS</span><b>${filtered.length}</b></div>
         <div class="k"><span>TOTAL DE UNIDADES</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.totalUnidades || 0), 0))}</b></div>
         <div class="k"><span>ÁREA DE TERRENO M²</span><b>${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></div>
@@ -1268,30 +1312,90 @@ async function exportPdf() {
         <div><p class="mono" style="font-size:10px;letter-spacing:.14em;color:${GRAY};margin-bottom:8px">OFERTA DISPONÍVEL POR MÊS</p><img class="pdf-img" src="${chartDisp.toBase64Image('image/png', 1)}" /></div>
         <div><p class="mono" style="font-size:10px;letter-spacing:.14em;color:${GRAY};margin-bottom:8px">UNIDADES LANÇADAS POR MÊS</p><img class="pdf-img" src="${chartLanc.toBase64Image('image/png', 1)}" /></div>
       </div>
-      <div class="pdf-foot"><span>EBM Inteligência · Dados que orientam decisões</span><span>${today} · pág. 2</span></div>`;
-    stage.appendChild(p2);
-    // tabela paginada
-    const rows = sortedRows();
-    const perPage = 16;
-    const pages = Math.max(1, Math.ceil(rows.length / perPage));
-    for (let p = 0; p < pages; p++) {
-      const chunk = rows.slice(p * perPage, (p + 1) * perPage);
-      const pg = document.createElement('div');
-      pg.className = 'pdf-page';
-      pg.innerHTML = `<div class="pdf-h"><span class="n">02</span><h2>Radar de empreendimentos ${pages > 1 ? `· ${p + 1}/${pages}` : ''}</h2></div>
-        <table class="pdf-table"><thead><tr><th>EMPREENDIMENTO</th><th>LANÇAMENTO</th><th>INCORPORADORA</th><th>BAIRRO</th><th>MACROZONA</th><th class="r">M² TERRENO</th><th class="r">TOTAL UNIDS</th><th>STATUS</th></tr></thead>
-        <tbody>${chunk.map(e => `<tr>
+      <p class="mono" style="font-size:9.5px;letter-spacing:.1em;color:${GRAY};margin-top:18px">FILTROS APLICADOS</p>
+      <div class="pdf-filters" style="margin-top:8px">${chips}</div>`);
+    // ---- 02 mapa ----
+    status.textContent = 'CAPTURANDO O MAPA…';
+    const mapaImg = await captureMapFor(filtered);
+    add(pdfCabecalho('02', 'Mapa georreferenciado', `${filtered.length} empreendimentos · terrenos do filtro em destaque`)
+      + (mapaImg ? `<img class="pdf-img" src="${mapaImg}" />`
+        : `<div style="height:520px;border:1px dashed ${HAIR};border-radius:10px;display:grid;place-items:center;color:${GRAY}" class="mono">MAPA INDISPONÍVEL</div>`));
+    // ---- 03 radar de empreendimentos ----
+    status.textContent = 'MONTANDO AS TABELAS…';
+    const colsRadar = [{ label: 'EMPREENDIMENTO' }, { label: 'LANÇAMENTO' }, { label: 'INCORPORADORA' }, { label: 'BAIRRO' },
+      { label: 'MACROZONA' }, { label: 'M² TERRENO', r: true }, { label: 'TOTAL UNIDS', r: true }, { label: 'STATUS' }];
+    paginar(sortedRows(), 16).forEach(p => add(
+      pdfCabecalho('03', 'Radar de empreendimentos' + sufixoPag(p))
+      + pdfTabela(colsRadar, p.itens.map(e => `<tr>
+        <td><b>${escapeHtml(e.empreendimento)}</b></td>
+        <td>${(e.dtLancamento || '—').slice(0, 7)}</td>
+        <td>${escapeHtml(e.incorporadora || '—')}</td>
+        <td>${escapeHtml(e.bairro || '—')}</td>
+        <td>${escapeHtml(mzLabel(e.macrozona))}</td>
+        <td class="r">${fmtInt(e.areaTerreno)}</td>
+        <td class="r">${fmtInt(e.totalUnidades)}</td>
+        <td>${statusEmp(e)}</td></tr>`).join(''))));
+    // ---- 04 unidades por tipologia ----
+    const dp = dadosPivot();
+    const colsPivot = [{ label: dp.rotulo }, ...dp.cols.map(c => ({ label: escapeHtml(rotuloTipologia(c)), r: true })), { label: 'TOTAL', r: true }];
+    paginar(achatarArvore(dp.linhas), 18).forEach(p => add(
+      pdfCabecalho('04', 'Unidades por tipologia' + sufixoPag(p), 'matriz tipo de empreendimento × dormitórios')
+      + pdfTabela(colsPivot, p.itens.map(({ no, nivel }) => `<tr>
+        <td${recuo(nivel)}>${nivel ? escapeHtml(no.nome) : `<b>${escapeHtml(no.nome)}</b>`}</td>
+        ${dp.cols.map(c => `<td class="r">${no.vals[c] ? fmtInt(no.vals[c]) : '·'}</td>`).join('')}
+        <td class="r">${fmtInt(no.total)}</td></tr>`).join('')
+        + (p.n === p.total ? `<tr><td><b>TOTAL GERAL</b></td>${dp.cols.map(c => `<td class="r"><b>${fmtInt(dp.gtot[c])}</b></td>`).join('')}<td class="r"><b>${fmtInt(dp.gsum)}</b></td></tr>` : ''))));
+    // ---- 05 desempenho por incorporadora ----
+    const di = dadosIncorporadoras();
+    paginar(achatarArvore(di.linhas), 18).forEach(p => add(
+      pdfCabecalho('05', 'Desempenho por incorporadora' + sufixoPag(p), di.legenda)
+      + pdfTabela(INC_COLS_PDF, p.itens.map(({ no, nivel }) => `<tr>
+        <td${recuo(nivel)}>${no.ehEmp ? escapeHtml(no.nome) : `<b>${escapeHtml(no.nome)}</b>`}</td>
+        <td class="r">${no.ehEmp ? '·' : fmtInt(no.projetos)}</td>
+        <td class="r">${fmtInt(no.unidades)}</td>
+        <td class="r">${no.protocolo || '·'}</td>
+        <td class="r">${no.aprovados || '·'}</td>
+        <td class="r">${no.lancados || '·'}</td>
+        <td>${no.ehEmp ? (dateBR(no.dataProtocolo) || '—') : ''}</td>
+        <td>${no.ehEmp ? (dateBR(no.dataAprovacao) || '—') : ''}</td>
+        <td class="r">${incMeses(no.medianaAprov)}</td>
+        <td class="r">${incMeses(no.mediaAprov)}</td></tr>`).join('')
+        + (p.n === p.total ? `<tr><td><b>TOTAL</b></td><td class="r"><b>${fmtInt(di.tot.projetos)}</b></td><td class="r"><b>${fmtInt(di.tot.unidades)}</b></td>
+          <td class="r"><b>${fmtInt(di.tot.protocolo)}</b></td><td class="r"><b>${fmtInt(di.tot.aprovados)}</b></td><td class="r"><b>${fmtInt(di.tot.lancados)}</b></td>
+          <td></td><td></td><td class="r"><b>${incMeses(mediana(di.tot.prazos))}</b></td><td class="r"><b>${incMeses(media(di.tot.prazos))}</b></td></tr>` : ''))));
+    // ---- 06 concentração ----
+    const dc = dadosConcentracao();
+    const colsConc = [{ label: dc.rotulo }, { label: 'EMPREEND.', r: true }, { label: 'UNIDADES', r: true },
+      { label: '% DO TOTAL', r: true }, { label: dc.colDim.label, r: true }, { label: 'M² MÉDIO', r: true }, { label: 'M² TERRENO', r: true }];
+    const pctConc = v => v.toFixed(1).replace('.', ',') + '%';
+    paginar(achatarArvore(dc.linhas), 18).forEach(p => add(
+      pdfCabecalho('06', 'Concentração por ' + dc.rotulo.split(' / ')[0].toLowerCase() + sufixoPag(p), 'onde a oferta futura se acumula')
+      + pdfTabela(colsConc, p.itens.map(({ no, nivel }) => `<tr>
+        <td${recuo(nivel)}>${nivel ? escapeHtml(no.nome) : `<b>${escapeHtml(no.nome)}</b>`}</td>
+        <td class="r">${no.emps == null ? '·' : fmtInt(no.emps)}</td>
+        <td class="r">${fmtInt(no.unidades)}</td>
+        <td class="r">${pctConc(no.pct)}</td>
+        <td class="r">${no.dim == null ? '·' : (typeof no.dim === 'number' ? fmtInt(no.dim) : escapeHtml(no.dim))}</td>
+        <td class="r">${no.m2 == null ? '—' : fmtDec(no.m2, 0)}</td>
+        <td class="r">${fmtInt(no.area)}</td></tr>`).join('')
+        + (p.n === p.total ? `<tr><td><b>TOTAL</b></td><td class="r"><b>${fmtInt(filtered.length)}</b></td><td class="r"><b>${fmtInt(dc.totUn)}</b></td>
+          <td class="r"><b>100,0%</b></td><td class="r"><b>${dc.totDim}</b></td><td></td>
+          <td class="r"><b>${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></td></tr>` : ''))));
+    // ---- 07 radar sem previsão ----
+    const semPrev = semPrevTabela();
+    if (semPrev.length) {
+      const colsSem = [{ label: 'TERRENO' }, { label: 'INCORPORADORA' }, { label: 'BAIRRO' }, { label: 'ENDEREÇO' },
+        { label: 'M² TERRENO', r: true }, { label: 'PROTOCOLO' }, { label: 'APROVAÇÃO' }];
+      paginar([...semPrev].sort((a, b) => cmpOrd(a[spSortKey], b[spSortKey], spSortAsc)), 16).forEach(p => add(
+        pdfCabecalho('07', 'Radar sem previsão de lançamento' + sufixoPag(p), 'terrenos monitorados sem data prevista · não entram nos indicadores')
+        + pdfTabela(colsSem, p.itens.map(e => `<tr>
           <td><b>${escapeHtml(e.empreendimento)}</b></td>
-          <td>${(e.dtLancamento || '—').slice(0, 7)}</td>
           <td>${escapeHtml(e.incorporadora || '—')}</td>
           <td>${escapeHtml(e.bairro || '—')}</td>
-          <td>${escapeHtml(mzLabel(e.macrozona))}</td>
+          <td>${escapeHtml((e.logradouro || '—').slice(0, 38))}</td>
           <td class="r">${fmtInt(e.areaTerreno)}</td>
-          <td class="r">${fmtInt(e.totalUnidades)}</td>
-          <td>${statusEmp(e)}</td>
-        </tr>`).join('')}</tbody></table>
-        <div class="pdf-foot"><span>EBM Inteligência · Dados que orientam decisões</span><span>${today} · pág. ${p + 3}</span></div>`;
-      stage.appendChild(pg);
+          <td>${dateBR(e.dataProtocolo) || (e.projetoProtocolado ? 'Protocolado' : '—')}</td>
+          <td>${dateBR(e.dataAprovacao) || (e.projetoAprovado ? 'Aprovado' : '—')}</td></tr>`).join(''))));
     }
     // renderizar
     const { jsPDF } = window.jspdf;
@@ -1353,7 +1457,10 @@ const latToY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.
 function loadTile(url) {
   return new Promise(res => { const img = new Image(); img.crossOrigin = 'anonymous'; img.onload = () => res(img); img.onerror = () => res(null); img.src = url; });
 }
-async function captureMapFor(emps, W = 1560, H = 900) {
+/* Proporção da caixa do slide (1015 × 560 px de área útil): capturar nessa mesma
+   proporção evita que o object-fit corte pontos das bordas. */
+const MAPA_W = 2030, MAPA_H = 1120;
+async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
   const ids = new Set(emps.map(e => e.id));
   const polys = (MAPA.features || []).filter(f => f.geometry.type === 'Polygon' && ids.has(f.properties._empId));
   const pts = emps.filter(e => e.lat != null && e.lng != null);
@@ -1363,51 +1470,65 @@ async function captureMapFor(emps, W = 1560, H = 900) {
   const feed = (lat, lng) => { minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); };
   pts.forEach(e => feed(e.lat, e.lng));
   polys.forEach(f => f.geometry.coordinates[0].forEach(c => feed(c[1], c[0])));
-  const padLat = Math.max((maxLat - minLat) * .16, .004), padLng = Math.max((maxLng - minLng) * .16, .004);
+  /* margem só o suficiente para o marcador não encostar na borda — antes eram 16%,
+     que jogavam o mapa longe quando os pontos estavam concentrados */
+  const padLat = Math.max((maxLat - minLat) * .04, .0016), padLng = Math.max((maxLng - minLng) * .04, .0016);
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
-  // zoom que encaixa o bbox
-  let z = 16;
-  while (z > 3 && (lngToX(maxLng, z) - lngToX(minLng, z) > W || latToY(minLat, z) - latToY(maxLat, z) > H)) z--;
+  /* zoom FRACIONÁRIO: o bbox passa a encostar exatamente na borda. Com zoom só
+     inteiro sobrava até 2× de folga e o recorte saía pequeno no meio do slide.
+     Os tiles vêm do zoom inteiro logo acima e são reduzidos por `s` (≤ 1, nunca
+     amplia — ampliar borraria o mapa). */
+  const spanX0 = lngToX(maxLng, 0) - lngToX(minLng, 0);
+  const spanY0 = latToY(minLat, 0) - latToY(maxLat, 0);
+  const zf = Math.max(3, Math.min(18, Math.min(Math.log2(W / spanX0), Math.log2(H / spanY0))));
+  const z = Math.min(18, Math.ceil(zf));
+  const s = 2 ** (zf - z);                       // fator de redução dos tiles
+  const Wm = W / s, Hm = H / s;                  // janela visível em pixels do zoom z
   const cx = (lngToX(minLng, z) + lngToX(maxLng, z)) / 2, cy = (latToY(maxLat, z) + latToY(minLat, z)) / 2;
-  const x0 = cx - W / 2, y0 = cy - H / 2;
+  const x0 = cx - Wm / 2, y0 = cy - Hm / 2;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#E9EDF3'; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.scale(s, s);
+  ctx.translate(-x0, -y0);
   // tiles
-  const t0x = Math.floor(x0 / 256), t1x = Math.floor((x0 + W) / 256), t0y = Math.floor(y0 / 256), t1y = Math.floor((y0 + H) / 256);
+  const t0x = Math.floor(x0 / 256), t1x = Math.floor((x0 + Wm) / 256), t0y = Math.floor(y0 / 256), t1y = Math.floor((y0 + Hm) / 256);
   const jobs = [];
   for (let tx = t0x; tx <= t1x; tx++) for (let ty = t0y; ty <= t1y; ty++) {
     if (tx < 0 || ty < 0 || tx >= 2 ** z || ty >= 2 ** z) continue;
     jobs.push(loadTile(`https://a.basemaps.cartocdn.com/light_all/${z}/${tx}/${ty}@2x.png`).then(img => {
-      if (img) ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0, 256, 256);
+      if (img) ctx.drawImage(img, tx * 256, ty * 256, 256, 256);
     }));
   }
   await Promise.all(jobs);
-  const px = (lng, lat) => [lngToX(lng, z) - x0, latToY(lat, z) - y0];
   // terrenos (polígonos do KMZ vinculados ao filtro)
   polys.forEach(f => {
     const p = f.properties;
     ctx.beginPath();
-    f.geometry.coordinates[0].forEach((c, i) => { const [x, y] = px(c[0], c[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    f.geometry.coordinates[0].forEach((c, i) => {
+      const x = lngToX(c[0], z), y = latToY(c[1], z);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
     ctx.closePath();
     ctx.fillStyle = (p.fill || BLUE) + '55';
     ctx.strokeStyle = p.stroke || p.fill || BLUE;
-    ctx.lineWidth = 2.4;
+    ctx.lineWidth = 3 / s;                       // espessura constante na imagem final
     ctx.fill(); ctx.stroke();
   });
   // empreendimentos (marcadores vermelhos)
   pts.forEach(e => {
-    const [x, y] = px(e.lng, e.lat);
-    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(lngToX(e.lng, z), latToY(e.lat, z), 11 / s, 0, Math.PI * 2);
     ctx.fillStyle = RED; ctx.fill();
-    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.lineWidth = 3.5 / s; ctx.strokeStyle = '#fff'; ctx.stroke();
   });
+  ctx.restore();
   // atribuição
-  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 250, H - 26, 250, 26);
-  ctx.fillStyle = '#566076'; ctx.font = '13px IBM Plex Sans, sans-serif';
-  ctx.fillText('© OpenStreetMap · © CARTO', W - 238, H - 8);
-  return canvas.toDataURL('image/jpeg', .9);
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 300, H - 32, 300, 32);
+  ctx.fillStyle = '#566076'; ctx.font = '16px IBM Plex Sans, sans-serif';
+  ctx.fillText('© OpenStreetMap · © CARTO', W - 286, H - 10);
+  return canvas.toDataURL('image/jpeg', .92);
 }
 async function decodeStageImages(stage) {
   await Promise.all([...stage.querySelectorAll('img')].map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve()));
@@ -1431,19 +1552,19 @@ function deckKpisHtml(emps, semPrevisao) {
     <div class="k accent"><span>UNIDS VENDIDAS/MÊS</span><b>${m.mes == null ? '—' : fmtDec(m.mes, 1)}</b></div>
   </div>`;
 }
-function deckTableHtml(emps, max = 11, semPrevisao) {
+/* ordem de exibição do corte — a paginação vem depois, para que a sequência
+   1/3 → 3/3 siga a mesma ordem que apareceria numa lista única */
+const deckOrdenar = (emps, semPrevisao) => semPrevisao
+  ? [...emps].sort((a, b) => (b.areaTerreno || 0) - (a.areaTerreno || 0))
+  : [...emps].sort((a, b) => (a.dtLancamento || '').localeCompare(b.dtLancamento || ''));
+/* nada de "+ N no dashboard": o slide recebe exatamente as linhas da sua página */
+function deckTableHtml(emps, semPrevisao) {
   if (semPrevisao) {
-    const rows = [...emps].sort((a, b) => (b.areaTerreno || 0) - (a.areaTerreno || 0));
-    const shown = rows.slice(0, max);
     return `<table class="pdf-table"><thead><tr><th>TERRENO</th><th>INCORPORADORA</th><th>BAIRRO</th><th>ENDEREÇO</th><th class="r">M² TERRENO</th><th class="r">UNIDS EST.</th><th>PROJETO</th></tr></thead>
-      <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td>${escapeHtml((e.logradouro || '—').slice(0, 40))}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${e.totalUnidades ? fmtInt(e.totalUnidades) : '—'}</td><td>${e.projetoAprovado ? 'APROVADO' : e.projetoProtocolado ? 'PROTOCOLADO' : '—'}</td></tr>`).join('')}</tbody></table>
-      ${rows.length > max ? `<p class="mono" style="font-size:9.5px;color:${GRAY};margin-top:8px">+ ${rows.length - max} terreno(s) — lista completa no dashboard.</p>` : ''}`;
+      <tbody>${emps.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td>${escapeHtml((e.logradouro || '—').slice(0, 40))}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${e.totalUnidades ? fmtInt(e.totalUnidades) : '—'}</td><td>${e.projetoAprovado ? 'APROVADO' : e.projetoProtocolado ? 'PROTOCOLADO' : '—'}</td></tr>`).join('')}</tbody></table>`;
   }
-  const rows = [...emps].sort((a, b) => (a.dtLancamento || '').localeCompare(b.dtLancamento || ''));
-  const shown = rows.slice(0, max);
   return `<table class="pdf-table"><thead><tr><th>EMPREENDIMENTO</th><th>LANÇAMENTO</th><th>INCORPORADORA</th><th>BAIRRO</th><th class="r">M² TERRENO</th><th class="r">TOTAL UNIDS</th><th>STATUS</th></tr></thead>
-    <tbody>${shown.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${mesAno((e.dtLancamento || '').slice(0, 7))}</td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${fmtInt(e.totalUnidades)}</td><td>${statusEmp(e)}</td></tr>`).join('')}</tbody></table>
-    ${rows.length > max ? `<p class="mono" style="font-size:9.5px;color:${GRAY};margin-top:8px">+ ${rows.length - max} empreendimento(s) — lista completa no dashboard.</p>` : ''}`;
+    <tbody>${emps.map(e => `<tr><td><b>${escapeHtml(e.empreendimento)}</b></td><td>${mesAno((e.dtLancamento || '').slice(0, 7))}</td><td>${escapeHtml(e.incorporadora || '—')}</td><td>${escapeHtml(e.bairro || '—')}</td><td class="r">${fmtInt(e.areaTerreno)}</td><td class="r">${fmtInt(e.totalUnidades)}</td><td>${statusEmp(e)}</td></tr>`).join('')}</tbody></table>`;
 }
 function deckFoot(page, periodo) {
   return `<div class="pdf-foot"><span>EBM Inteligência · Oferta Futura GO · ${escapeHtml(periodo)}</span><span>pág. ${page}</span></div>`;
@@ -1480,13 +1601,13 @@ async function exportDeck() {
     // terrenos monitorados sem data: entram na apresentação mesmo sem tipologia/lançamento
     status.textContent = 'BUSCANDO TERRENOS SEM PREVISÃO…';
     let semPrev = [];
-    try { semPrev = await loadSemDataEmps(); }
+    try { await loadSemDataEmps(); semPrev = semPrevTabela(); }
     catch (err) { console.warn('terrenos sem previsão indisponíveis', err); }
     if (semPrev.length) {
       const porBairro = {};
       semPrev.forEach(e => (porBairro[e.bairro || '—'] = porBairro[e.bairro || '—'] || []).push(e));
       const ordenados = Object.entries(porBairro).sort((a, b) => b[1].length - a[1].length);
-      const TOP = 8;  // sem isso seriam dezenas de slides, um por bairro
+      const TOP = 8;  // consolida a cauda num corte só; nenhum terreno é descartado
       const cuts = ordenados.slice(0, TOP).map(([b, emps]) => ({ title: b, sub: 'Bairro · sem previsão', emps, semPrevisao: true }));
       const resto = ordenados.slice(TOP).flatMap(([, emps]) => emps);
       if (resto.length) cuts.push({ title: 'Demais bairros', sub: `${ordenados.length - TOP} bairros · sem previsão`, emps: resto, semPrevisao: true });
@@ -1502,19 +1623,16 @@ async function exportDeck() {
     cover.innerHTML = `<svg class="pdf-net" id="deckNet" preserveAspectRatio="xMidYMid slice"></svg>
       <div style="position:relative">
         <div style="display:inline-block;background:#fff;border-radius:12px;padding:14px 20px;margin-bottom:40px"><img src="${logoSrc()}" style="height:46px;width:100px;display:inline" /></div>
-        <div class="eyebrow">EBM INTELIGÊNCIA — APRESENTAÇÃO EXECUTIVA</div>
         <h1>Oferta Futura GO</h1>
         <p class="mono" style="position:relative;font-size:17px;color:#AEBFDE;margin-top:16px">Período: ${escapeHtml(periodo)}</p>
       </div>
       <div class="pdf-meta">
-        <div>Documento<b>Apresentação de Oferta Futura</b></div>
         <div>Emitido em<b>${new Date().toLocaleDateString('pt-BR')}</b></div>
         <div>Empreendimentos<b>${filtered.length}</b></div>
-        <div>Blocos<b>${blocks.map(b => b.title.split(' — ')[0]).join(' · ')}</b></div>
       </div>`;
     stage.appendChild(cover);
-    makeField(cover.querySelector('#deckNet'), { w: 1123, h: 794, n: 40, color: NAVY7, dist: 240, lineOp: .3, dotOp: .4 });
-    // ---- blocos: slide de mapa + 1 slide por corte ----
+    capaTrama(cover.querySelector('#deckNet'));
+    // ---- blocos: slide de mapa + N slides por corte (nada é truncado) ----
     let pageNo = 1;
     for (const b of blocks) {
       status.textContent = `CAPTURANDO MAPA — ${b.title.toUpperCase()}…`;
@@ -1528,14 +1646,16 @@ async function exportDeck() {
         ${deckFoot(pageNo, periodo)}`;
       stage.appendChild(mapSlide);
       for (const c of b.cuts) {
-        pageNo++;
-        const s = document.createElement('div');
-        s.className = 'pdf-page';
-        s.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(c.title)}<small style="display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;letter-spacing:.14em;color:${GRAY};margin-top:6px">${escapeHtml(c.sub.toUpperCase())} · PERÍODO ${escapeHtml(periodo).toUpperCase()}</small></h2></div>
-          ${deckKpisHtml(c.emps, c.semPrevisao)}
-          ${deckTableHtml(c.emps, 11, c.semPrevisao)}
-          ${deckFoot(pageNo, periodo)}`;
-        stage.appendChild(s);
+        paginar(deckOrdenar(c.emps, c.semPrevisao), 11).forEach(p => {
+          pageNo++;
+          const s = document.createElement('div');
+          s.className = 'pdf-page';
+          s.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(c.title)}${sufixoPag(p)}<small style="display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;letter-spacing:.14em;color:${GRAY};margin-top:6px">${escapeHtml(c.sub.toUpperCase())} · PERÍODO ${escapeHtml(periodo).toUpperCase()} · ${c.emps.length} NO CORTE</small></h2></div>
+            ${deckKpisHtml(c.emps, c.semPrevisao)}
+            ${deckTableHtml(p.itens, c.semPrevisao)}
+            ${deckFoot(pageNo, periodo)}`;
+          stage.appendChild(s);
+        });
       }
     }
     // ---- renderização ----
@@ -2144,22 +2264,35 @@ function statsIncorporadoras(emps) {
   }));
 }
 let incNivel = 0;   // 0=incorporadora (com drill p/ empreendimentos), 1=empreendimento (lista plana)
-function renderIncorporadoras() {
-  const alvo = $('#incTable'); if (!alvo) return;
+const incMeses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
+const INC_COLS_PDF = [
+  { label: 'INCORPORADORA / EMPREENDIMENTO' }, { label: 'PROJETOS', r: true }, { label: 'UNIDADES', r: true },
+  { label: 'EM PROTOCOLO', r: true }, { label: 'APROVADOS', r: true }, { label: 'LANÇADOS', r: true },
+  { label: 'DATA PROTOCOLO' }, { label: 'DATA APROVAÇÃO' }, { label: 'APROV. MEDIANA', r: true }, { label: 'APROV. MÉDIA', r: true },
+];
+function dadosIncorporadoras() {
   const stats = statsIncorporadoras(baseIncorporadoras());
   const linhas = ordenarArvore(incNivel ? stats.flatMap(a => a.filhos) : stats, 'incTable', (r, k) => k === 'nome' ? r.nome : r[k]);
-  const meses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
-  const marca = v => v ? `<b>${v}</b>` : '·';
   const tot = linhas.reduce((s, l) => ({
     projetos: s.projetos + l.projetos, unidades: s.unidades + l.unidades,
     protocolo: s.protocolo + l.protocolo, aprovados: s.aprovados + l.aprovados,
     lancados: s.lancados + l.lancados,
     prazos: s.prazos.concat(l.prazos || (l.medianaAprov != null ? [l.medianaAprov] : [])),
   }), { projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] });
-  const sub = $('#incSub');
-  if (sub) sub.textContent = incJanela()
-    ? `Projetos protocolados ou aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · não obedece ao filtro de período de lançamento · lançado = lançamento até ${ymLabel(rEguaLancamento())}`
+  /* a janela é OU, não E: basta o protocolo OU a aprovação cair no período para o
+     empreendimento entrar (ver baseIncorporadoras) */
+  const legenda = incJanela()
+    ? `Projetos protocolados OU aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · basta uma das duas datas cair no período · não obedece ao filtro de período de lançamento · lançado = lançamento até ${ymLabel(rEguaLancamento())}`
     : `Toda a base, sem recorte de período · lançado = lançamento até ${ymLabel(rEguaLancamento())} · tempo de aprovação = protocolo → aprovação`;
+  return { linhas, tot, legenda };
+}
+function renderIncorporadoras() {
+  const alvo = $('#incTable'); if (!alvo) return;
+  const { linhas, tot, legenda } = dadosIncorporadoras();
+  const meses = incMeses;
+  const marca = v => v ? `<b>${v}</b>` : '·';
+  const sub = $('#incSub');
+  if (sub) sub.textContent = legenda;
   const cols = [
     { k: 'nome', label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' },
     { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
@@ -2204,8 +2337,7 @@ function renderIncorporadoras() {
    inteira (share de mercado por incorporadora, drill p/ empreendimentos);
    empreendimento é a lista plana com o share individual. */
 let concMode = 'bairro';
-function renderConcentracao() {
-  const alvo = $('#concTable'); if (!alvo) return;
+function dadosConcentracao() {
   const chaveGeo = e => concMode === 'macrozona' ? mzLabel(e.macrozona) : (e.bairro || '—');
   const geoLabel = concMode === 'macrozona' ? 'MACROZONA' : 'BAIRRO';
   const areaMedia = areas => {
@@ -2259,6 +2391,11 @@ function renderConcentracao() {
   }
   const maior = Math.max(...linhasBrutas.map(l => l.unidades), 1);
   const linhas = ordenarArvore(linhasBrutas, 'concTable', (r, k) => r[k]);
+  return { linhas, maior, colDim, totDim, unidadeTotal, rotulo, totUn };
+}
+function renderConcentracao() {
+  const alvo = $('#concTable'); if (!alvo) return;
+  const { linhas, maior, colDim, totDim, unidadeTotal, rotulo, totUn } = dadosConcentracao();
   const pct = v => v.toFixed(1).replace('.', ',') + '%';
   const barra = v => `<td class="conc-bar"><i style="width:${Math.max(2, Math.min(100, v * 100 / maior))}%"></i></td>`;
   const dimCel = d => d == null ? '·' : (typeof d === 'number' ? fmtInt(d) : escapeHtml(d));

@@ -352,7 +352,6 @@ tr:hover .rt-name{color:var(--red)}
 .pdf-cover{background:var(--navy);color:#fff;justify-content:space-between}
 .pdf-cover .pdf-net{position:absolute;inset:0;width:100%;height:100%;opacity:.75}
 .pdf-cover h1{position:relative;font-family:var(--font-display);font-weight:800;font-size:54px;line-height:1.02;letter-spacing:-.01em;margin-top:18px}
-.pdf-cover .eyebrow{position:relative;font-family:var(--font-mono);font-size:12px;letter-spacing:.24em;color:#AEBFDE}
 .pdf-cover .pdf-meta{position:relative;display:flex;gap:44px;border-top:1px solid var(--hair-dark);padding-top:22px}
 .pdf-cover .pdf-meta div{font-family:var(--font-mono);font-size:11.5px;color:#AEBFDE;line-height:1.8}
 .pdf-cover .pdf-meta b{display:block;color:#fff;font-weight:500}
