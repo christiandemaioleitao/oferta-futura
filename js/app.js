@@ -1989,21 +1989,38 @@ function aplicarTituloDaPagina() {
    ============================================================ */
 /* nunca embutir chave de API aqui: este arquivo é servido ao navegador.
    A chave é do usuário e fica só no localStorage dele (botão de chave no chat). */
-const DEFAULT_AI_PROVIDER = 'openrouter', DEFAULT_AI_MODEL = 'openai/gpt-oss-120b';
+/* padrão de fábrica: modelo gratuito da OpenRouter, para o chat funcionar com uma
+   chave free. Ids conferidos em openrouter.ai/api/v1/models — modelo free sempre
+   termina em ':free'; id inventado devolve 404 na primeira pergunta. */
+const DEFAULT_AI_PROVIDER = 'openrouter', DEFAULT_AI_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const AI_PROVIDERS = {
   openai: { label: 'OpenAI', type: 'chat', endpoint: 'https://api.openai.com/v1/chat/completions', models: ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'] },
   deepseek: { label: 'DeepSeek', type: 'chat', endpoint: 'https://api.deepseek.com/chat/completions', models: ['deepseek-chat', 'deepseek-reasoner'] },
   mistral: { label: 'Mistral', type: 'chat', endpoint: 'https://api.mistral.ai/v1/chat/completions', models: ['mistral-small-latest', 'mistral-large-latest', 'open-mistral-nemo'] },
-  openrouter: { label: 'OpenRouter', type: 'chat', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [{ id: 'xiaomi/mimo-v2.5', label: 'MiMo v2.5 · Xiaomi' }, { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' }, { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'Nemotron 3 Ultra 550B · free' }, { id: 'minimax/minimax-m3', label: 'MiniMax M3' }, { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B · OpenAI' }] },
+  openrouter: { label: 'OpenRouter', type: 'chat', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [
+    { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'Nemotron 3 Ultra 550B · GRÁTIS (padrão)' },
+    { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B · GRÁTIS' },
+    { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B · GRÁTIS' },
+    { id: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B · GRÁTIS' },
+    { id: 'inclusionai/ling-3.0-flash:free', label: 'Ling 3.0 Flash · GRÁTIS' },
+    { id: 'xiaomi/mimo-v2.5', label: 'MiMo v2.5 · Xiaomi' },
+    { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+    { id: 'minimax/minimax-m3', label: 'MiniMax M3' },
+    { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B · OpenAI' },
+  ] },
   gemini: { label: 'Gemini', type: 'gemini', models: [{ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }, { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' }] },
   anthropic: { label: 'Anthropic', type: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }, { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' }, { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }] },
   groq: { label: 'Groq', type: 'chat', endpoint: 'https://api.groq.com/openai/v1/chat/completions', models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'] },
   together: { label: 'Together AI', type: 'chat', endpoint: 'https://api.together.xyz/v1/chat/completions', models: ['meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1', 'deepseek-ai/deepseek-coder-33b-instruct'] },
 };
+/* Provedor e modelo vêm do banco (valem para todos); a CHAVE de API continua só no
+   localStorage de quem a cadastrou — ela é secreta e o /api/config é de leitura
+   pública, então publicá-la entregaria a chave a qualquer visitante. */
 function aiConfig() {
+  const ia = SITE_CFG.ia || {};
   return {
-    provider: localStorage.getItem('ofDashboardAIProvider') || DEFAULT_AI_PROVIDER,
-    model: localStorage.getItem('ofDashboardAIModel') || DEFAULT_AI_MODEL,
+    provider: AI_PROVIDERS[ia.provider] ? ia.provider : DEFAULT_AI_PROVIDER,
+    model: ia.model || DEFAULT_AI_MODEL,
     key: localStorage.getItem('ofDashboardAIKey') || '',
   };
 }
@@ -2015,6 +2032,14 @@ function fillAIModels(provider, selected = '') {
   const ids = opts.map(o => o.id);
   if (selected && ids.includes(selected)) { sel.value = selected; if (custom) custom.value = ''; }
   else if (selected && custom) custom.value = selected;
+}
+/* refaz os selects a partir do que está valendo — chamado no init e de novo quando
+   a config do servidor chega, que é depois do primeiro render */
+function aplicarConfigIA() {
+  const provider = $('#aiProvider'); if (!provider) return;
+  const cfg = aiConfig();
+  provider.value = cfg.provider;
+  fillAIModels(cfg.provider, cfg.model);
 }
 function resizeAIQuestion() { const q = $('#aiQuestion'); if (!q) return; q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 120) + 'px'; }
 function setAIChatOpen(open) {
@@ -2093,7 +2118,9 @@ ATENÇÃO — cada tipologia se repete em ~18 linhas (uma por mês de projeção
 - Contar empreendimentos: COUNT(DISTINCT empreendimento)
 Limite de 200 linhas por consulta — agregue no SQL.
 
-Também existe sintese_consolidada (mercado histórico bruto). Se a pergunta fugir do mercado imobiliário/dados do dashboard, diga que foge do escopo.`;
+Também existe sintese_consolidada (mercado histórico bruto). Se a pergunta fugir do mercado imobiliário/dados do dashboard, diga que foge do escopo.
+
+CONTEXTO DA CONVERSA: as mensagens anteriores fazem parte do mesmo diálogo. Pergunta curta ou com pronome se refere ao recorte que já estava em discussão — se o usuário perguntou "quantos empreendimentos da OPUS em 2026?" e depois disser "liste os empreendimentos", ele quer os da OPUS em 2026, e a nova consulta deve repetir esses mesmos filtros. Só peça esclarecimento se o histórico realmente não resolver a ambiguidade.`;
 }
 function aiUserContext() {
   return `Mês de referência: ${refMonth}. Filtros ativos no dashboard (apenas contexto; o banco não está filtrado): ${filtersSummaryText() || 'nenhum'}.`;
@@ -2124,6 +2151,12 @@ async function callAIProvider(messages) {
   return (data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '').trim();
 }
 const extractSQL = text => { const m = /```sql\s*([\s\S]*?)```/i.exec(text || ''); return m ? m[1].trim() : null; };
+/* Memória da conversa: guarda só pergunta + resposta final de cada rodada. As idas
+   e voltas de SQL ficam de fora — são rascunho da rodada, e repetir 24 KB de JSON
+   de resultado a cada pergunta estouraria o contexto em poucas trocas.
+   É isso que faz "liste os empreendimentos" herdar a OPUS da pergunta anterior. */
+const historicoChat = [];
+const CHAT_MAX_TROCAS = 8;   // 8 perguntas + 8 respostas
 async function askAI() {
   const input = $('#aiQuestion'), btn = $('#aiAskBtn'), q = input.value.trim();
   if (!q) return;
@@ -2133,7 +2166,7 @@ async function askAI() {
   btn.disabled = true;
   const loading = appendAIMessage('bot', 'Analisando a oferta futura…');
   try {
-    const messages = [{ role: 'user', content: `${aiUserContext()}\n\nPergunta do usuário: ${q}` }];
+    const messages = [...historicoChat, { role: 'user', content: `${aiUserContext()}\n\nPergunta do usuário: ${q}` }];
     let answer = 'Não recebi resposta da IA.';
     for (let round = 0; round < 4; round++) {
       const out = await callAIProvider(messages);
@@ -2150,6 +2183,9 @@ async function askAI() {
       loading.__setText('Interpretando os dados…');
     }
     loading.__setText(answer);
+    // grava a pergunta CRUA (sem o preâmbulo de contexto, que é remontado a cada rodada)
+    historicoChat.push({ role: 'user', content: q }, { role: 'assistant', content: answer });
+    while (historicoChat.length > CHAT_MAX_TROCAS * 2) historicoChat.splice(0, 2);
   }
   catch (err) { console.error(err); loading.__setText('Não consegui responder: ' + err.message); }
   finally { btn.disabled = false; input.focus(); }
@@ -2158,22 +2194,36 @@ function initAIChat() {
   const provider = $('#aiProvider'), model = $('#aiModel'), custom = $('#aiCustomModel'), key = $('#aiApiKey'), panel = $('#aiKeyPanel'), btn = $('#aiKeyBtn'), save = $('#aiSaveKey'), cancel = $('#aiCancelKey'), ask = $('#aiAskBtn'), question = $('#aiQuestion'), fab = $('#aiFab'), form = $('#chatForm');
   if (!provider || !btn) return;
   provider.innerHTML = Object.entries(AI_PROVIDERS).map(([id, p]) => `<option value="${id}">${p.label}</option>`).join('');
-  const saved = aiConfig();
-  provider.value = AI_PROVIDERS[saved.provider] ? saved.provider : DEFAULT_AI_PROVIDER;
-  fillAIModels(provider.value, saved.model);
-  key.value = saved.key;
+  aplicarConfigIA();
+  key.value = aiConfig().key;
   provider.onchange = () => { fillAIModels(provider.value); if (custom) custom.value = ''; };
   if (fab) fab.onclick = () => setAIChatOpen(!$('#aiChat').classList.contains('is-open'));
   btn.onclick = () => { if (!requireEditPassword()) { alert('Senha incorreta.'); return; } setAIChatOpen(true); panel.hidden = false; key.focus(); };
   cancel.onclick = () => { panel.hidden = true; question.focus(); };
-  save.onclick = () => {
+  save.onclick = async () => {
     const chosen = (custom.value || model.value || '').trim();
     if (!key.value.trim()) { alert('Informe a chave da API.'); return; }
-    localStorage.setItem('ofDashboardAIProvider', provider.value);
-    localStorage.setItem('ofDashboardAIModel', chosen);
+    if (!chosen) { alert('Escolha um modelo.'); return; }
     localStorage.setItem('ofDashboardAIKey', key.value.trim());
     panel.hidden = true;
-    appendAIMessage('bot', `Chave salva para ${AI_PROVIDERS[provider.value].label} / ${chosen}.`);
+    const atual = SITE_CFG.ia || {};
+    /* só pede a senha do servidor quando provedor/modelo realmente mudaram —
+       cadastrar a própria chave não deveria exigir a senha de publicação */
+    if (atual.provider === provider.value && atual.model === chosen) {
+      appendAIMessage('bot', `Chave salva neste navegador. Modelo em uso: ${AI_PROVIDERS[provider.value].label} / ${chosen}.`);
+      return;
+    }
+    try {
+      await salvarConfig('ia', { provider: provider.value, model: chosen }, { acao: 'mudar o modelo de IA para todos os usuários' });
+      SITE_CFG.ia = { provider: provider.value, model: chosen };
+      appendAIMessage('bot', `Chave salva neste navegador. Modelo alterado para ${AI_PROVIDERS[provider.value].label} / ${chosen} — vale para todos os usuários.`);
+    } catch (err) {
+      const cfg = aiConfig();
+      provider.value = cfg.provider; fillAIModels(cfg.provider, cfg.model);
+      appendAIMessage('bot', String(err.message) === 'cancelado'
+        ? `Modelo não alterado. Chave salva; segue valendo ${AI_PROVIDERS[cfg.provider].label} / ${cfg.model}.`
+        : `Chave salva, mas não consegui publicar o modelo: ${err.message}`);
+    }
   };
   if (form) form.onsubmit = e => { e.preventDefault(); askAI(); };
   ask.onclick = e => { e.preventDefault(); askAI(); };
@@ -2747,6 +2797,7 @@ initRestaurarMapa();
    do repositório e é corrigida assim que o banco responde */
 cfgPronta.then(() => {
   aplicarTextosSalvos();
+  aplicarConfigIA();
   const km = SITE_CFG.mapa_kmz;
   if (km && km.geojson && (km.geojson.features || []).length) aplicarMapa(km.geojson);
   else atualizarStatusMapa();

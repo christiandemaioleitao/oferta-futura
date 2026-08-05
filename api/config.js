@@ -13,7 +13,9 @@
 import { neon } from '@neondatabase/serverless';
 
 const ORIGENS = [/^https:\/\/oferta-futura[a-z0-9-]*\.vercel\.app$/, /^http:\/\/localhost(:\d+)?$/];
-const CHAVES = new Set(['textos', 'mapa_kmz']);
+// 'ia' guarda só provedor + modelo. A CHAVE de API nunca entra aqui: o GET é
+// público, então gravá-la publicaria a chave do usuário para qualquer visitante.
+const CHAVES = new Set(['textos', 'mapa_kmz', 'ia']);
 const TABELA = 'site_config';
 // a Vercel Hobby corta a requisição perto de 4,5 MB; barrar antes dá erro legível
 const MAX_BYTES = 3.5 * 1024 * 1024;
@@ -71,8 +73,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, apagada: chave });
     }
 
-    const alvo = body.patch !== undefined ? body.patch : body.valor;
+    let alvo = body.patch !== undefined ? body.patch : body.valor;
     if (alvo === undefined) return res.status(400).json({ error: 'Informe valor, patch ou apagar.' });
+    /* rede de segurança: 'ia' é lido por qualquer visitante, então só provedor e
+       modelo passam. Um 'key' escapando do cliente viraria chave pública. */
+    if (chave === 'ia') {
+      if (!alvo || typeof alvo !== 'object' || Array.isArray(alvo)) {
+        return res.status(400).json({ error: 'ia precisa ser um objeto {provider, model}.' });
+      }
+      alvo = { provider: String(alvo.provider || ''), model: String(alvo.model || '') };
+      if (!alvo.provider || !alvo.model) return res.status(400).json({ error: 'Informe provider e model.' });
+    }
     const texto = JSON.stringify(alvo);
     if (texto.length > MAX_BYTES) {
       return res.status(413).json({ error: `Conteúdo grande demais (${(texto.length / 1048576).toFixed(1)} MB; máximo ${(MAX_BYTES / 1048576).toFixed(1)} MB).` });

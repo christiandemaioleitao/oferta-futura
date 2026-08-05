@@ -409,7 +409,7 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 | **Ficha** | Origem e produto, tipologias, protocolo → aprovação com tempo decorrido, endereço, pavimentos e fonte. |
 | **Exportar** | PDF (relatório com mapa e as seis tabelas do painel), PDF Apresentação (deck por macrozona, faixa de m², segmento e **terrenos sem previsão**), Excel (5 abas) e KMZ — todos respeitando os filtros. Nenhum dos dois PDFs trunca tabela: o excedente vira as páginas `(1/3)`, `(2/3)`… (ver §14c). |
 | **Importar** | KMZ/KML do Google Earth. O mapa importado é **gravado no banco**: quem abrir o site depois vê a mesma geometria (ver §17). |
-| **Chat de IA** | Consulta o Neon: o modelo escreve o SQL, o dashboard executa via `/api/sql` e devolve as linhas (até 3 consultas encadeadas). Suporta OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq, Together e OpenRouter, com campo para digitar qualquer id de modelo. |
+| **Chat de IA** | Consulta o Neon: o modelo escreve o SQL, o dashboard executa via `/api/sql` e devolve as linhas (até 3 consultas encadeadas). **Mantém o contexto da conversa** — pergunta curta herda o recorte da anterior. Provedor e modelo são compartilhados (§17); a chave de API é de cada usuário. Padrão de fábrica: modelo gratuito da OpenRouter. |
 | **Edição ✎** | Títulos e subtítulos editáveis, **gravados no banco** e válidos para todos os usuários (senha do servidor — ver §17). O dock de configurações liga/desliga os lápis e os rótulos dos gráficos. |
 
 ### Segurança
@@ -487,3 +487,34 @@ importação que parece ter dado certo e some no F5 — que era exatamente o sin
 
 Limite de 3,5 MB por chave (a Vercel Hobby corta perto de 4,5 MB). O KMZ atual do
 projeto ocupa 200 KB como GeoJSON, com folga larga.
+
+### 17b. Modelo de IA é compartilhado; a chave, não
+
+`site_config.ia` guarda `{provider, model}` e vale para todos. A **chave de API fica
+só no `localStorage`** de quem a cadastrou, e isso é deliberado: o `GET /api/config`
+é público, então gravar a chave ali a entregaria a qualquer visitante. O servidor
+reforça a regra — na chave `ia` ele reconstrói o objeto com apenas `provider` e
+`model`, descartando qualquer outro campo que o cliente mande.
+
+Salvar a chave de API **não** pede a senha do servidor: ela é local. A senha só entra
+quando provedor ou modelo mudaram de fato, porque aí a mudança atinge todo mundo.
+
+Padrão de fábrica: OpenRouter com `nvidia/nemotron-3-ultra-550b-a55b:free`. A lista
+traz cinco modelos gratuitos primeiro, marcados **GRÁTIS**. Modelo free na OpenRouter
+sempre termina em `:free`, e os ids foram conferidos em `openrouter.ai/api/v1/models`
+— id inventado não falha ao salvar, falha na primeira pergunta, com um 404 que parece
+problema de chave.
+
+### 17c. O chat lembra da conversa
+
+`historicoChat` guarda pergunta e resposta final de cada rodada e vai junto na
+requisição seguinte. É o que faz "liste os empreendimentos" logo depois de "quantos
+empreendimentos da OPUS em 2026?" herdar OPUS e 2026 em vez de listar a base inteira.
+
+As idas e voltas de SQL de dentro de uma rodada **não** entram no histórico: são
+rascunho, e repetir 24 KB de JSON de resultado a cada nova pergunta estouraria o
+contexto em poucas trocas. A janela guarda 8 pares e desliza — a 9ª pergunta descarta
+a 1ª. O `system prompt` explica a regra ao modelo, senão ele pede esclarecimento em
+vez de usar o histórico que já recebeu.
+
+A memória vive na aba: recarregar a página começa conversa nova.
