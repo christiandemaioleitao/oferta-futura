@@ -1349,7 +1349,7 @@ async function exportPdf() {
     const di = dadosIncorporadoras();
     paginar(achatarArvore(di.linhas), 18).forEach(p => add(
       pdfCabecalho('05', 'Desempenho por incorporadora' + sufixoPag(p), di.legenda)
-      + pdfTabela(INC_COLS_PDF, p.itens.map(({ no, nivel }) => `<tr>
+      + pdfTabela(incColsPdf(), p.itens.map(({ no, nivel }) => `<tr>
         <td${recuo(nivel)}>${no.ehEmp ? escapeHtml(no.nome) : `<b>${escapeHtml(no.nome)}</b>`}</td>
         <td class="r">${no.ehEmp ? '·' : fmtInt(no.projetos)}</td>
         <td class="r">${fmtInt(no.unidades)}</td>
@@ -1382,6 +1382,9 @@ async function exportPdf() {
           <td class="r"><b>100,0%</b></td><td class="r"><b>${dc.totDim}</b></td><td></td>
           <td class="r"><b>${fmtInt(filtered.reduce((s, e) => s + (e.areaTerreno || 0), 0))}</b></td></tr>` : ''))));
     // ---- 07 radar sem previsão ----
+    // numa base antiga (sem OF_DATA.semPrevisao) os terrenos vêm do Neon; sem esse
+    // await a seção sumiria calada em vez de aparecer vazia
+    try { await loadSemDataEmps(); } catch (err) { console.warn('terrenos sem previsão indisponíveis', err); }
     const semPrev = semPrevTabela();
     if (semPrev.length) {
       const colsSem = [{ label: 'TERRENO' }, { label: 'INCORPORADORA' }, { label: 'BAIRRO' }, { label: 'ENDEREÇO' },
@@ -2265,8 +2268,8 @@ function statsIncorporadoras(emps) {
 }
 let incNivel = 0;   // 0=incorporadora (com drill p/ empreendimentos), 1=empreendimento (lista plana)
 const incMeses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
-const INC_COLS_PDF = [
-  { label: 'INCORPORADORA / EMPREENDIMENTO' }, { label: 'PROJETOS', r: true }, { label: 'UNIDADES', r: true },
+const incColsPdf = () => [
+  { label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' }, { label: 'PROJETOS', r: true }, { label: 'UNIDADES', r: true },
   { label: 'EM PROTOCOLO', r: true }, { label: 'APROVADOS', r: true }, { label: 'LANÇADOS', r: true },
   { label: 'DATA PROTOCOLO' }, { label: 'DATA APROVAÇÃO' }, { label: 'APROV. MEDIANA', r: true }, { label: 'APROV. MÉDIA', r: true },
 ];
