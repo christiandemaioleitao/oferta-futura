@@ -27,6 +27,7 @@ js/app.js                  filtros, mapa, gráficos, PDF, imports, chat, ediçã
 api/sql.js                 função serverless: consulta somente-leitura ao Neon
 api/config.js              função serverless: config compartilhada (textos e mapa importado)
 api/upload-sintese.js      função serverless: substitui sintese_consolidada no Neon
+api/atualizar-portal.js    função serverless: dispara e acompanha o pipeline pelo dashboard
 data/dados_of.js           window.OF_DATA   — empreendimentos + tipologias + série mensal
 data/mapa_of.js            window.OF_MAPA   — GeoJSON dos terrenos/pontos do KMZ
 data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já coloridos
@@ -105,6 +106,36 @@ Na Vercel, a função `/api/sql` usa `DATABASE_URL` (mesma string do Neon), conf
 O botão **Atualizar base da síntese** (dock de configurações → `/api/upload-sintese`) exige mais uma variável na Vercel: `SINTESE_UPLOAD_SENHA`. É a senha que o botão pede antes do upload; sem ela o endpoint recusa qualquer escrita (fica desligado). Use uma senha forte — é um endpoint público que substitui a tabela `sintese_consolidada` inteira. Ver §16.
 
 Localmente, um `.env` na raiz (ignorado pelo git) — ver `.env.example`.
+
+### Atualizar os dados do portal pelo dashboard
+
+Em **Configurações → Dados do portal → Atualizar**, informe a mesma senha do upload
+da síntese. O botão consulta novamente o SQL Server do Portal Inteligência, recalcula
+as projeções e publica os arquivos do dashboard pelo workflow existente na `main`.
+A data base e o fator são os da **última projeção**, registrados em `of_meta`;
+a guarda contra queda maior que 10% permanece ativa. A síntese não é substituída
+por esse botão: o upload de planilha continua separado.
+
+Na **Vercel**, configure `PORTAL_GITHUB_TOKEN` com um token fine-grained restrito a
+este repositório, com **Actions: read/write** e **Contents: read**, além das variáveis
+`DATABASE_URL` e `SINTESE_UPLOAD_SENHA` já usadas pelo site. Faça um novo deploy após
+alterar as variáveis. Não use um token que tenha sido compartilhado em mensagens.
+O token fica exclusivamente no servidor. As credenciais do SQL Server/Neon continuam
+nos secrets do Actions; o navegador não recebe nenhuma delas.
+
+O painel mostra fila, execução, erro e espera pela publicação. Depois que o Actions
+termina, só recarrega quando `data/atualizacao_of.json` da execução solicitada chega
+ao deploy atual. Se a publicação demorar ou a conexão cair, **Verificar** retoma o
+acompanhamento sem iniciar outra execução. O acompanhamento fica na aba aberta;
+fechar a aba não cancela o pipeline. A `main` precisa conter esta versão do workflow
+antes do primeiro uso do botão (inclusive ao testar uma URL de preview).
+
+### Base cartográfica e camadas
+
+O mapa e as capturas para PDF usam os tiles padrão do OpenStreetMap, com atribuição
+visível, em lugar da URL do CARTO que passou a devolver “API KEY REQUIRED”. A camada
+de satélite continua disponível. O contêiner do mapa isola os z-index internos do
+Leaflet para que controles e polígonos não cubram o menu de configurações.
 
 ### Guarda de sanidade
 

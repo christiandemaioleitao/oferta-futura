@@ -1,6 +1,9 @@
 {
   "name": "oferta-futura",
   "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4"
   }

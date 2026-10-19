@@ -417,11 +417,14 @@ function visibleKmzFeatures() {
 
 /* ---------- mapa ---------- */
 let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles;
+// A base antiga do CARTO passou a exigir chave. URL compartilhada com o PDF.
+const BASE_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const BASE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
 const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
-  baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap · &copy; CARTO', crossOrigin: true, maxZoom: 19,
+  baseTiles = L.tileLayer(BASE_TILE_URL, {
+    attribution: BASE_ATTRIBUTION, crossOrigin: true, maxZoom: 19,
   }).addTo(map);
   satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
@@ -1542,7 +1545,7 @@ function periodoLabel() {
   if (!a && !b) return '—';
   return `${mesAno(a)} – ${mesAno(b)}`;
 }
-/* mapa estático em canvas (web mercator + tiles CARTO) — captura determinística p/ slides */
+/* mapa estático em canvas (web mercator) — captura determinística p/ slides */
 const lngToX = (lng, z) => (lng + 180) / 360 * 256 * 2 ** z;
 const latToY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
 function loadTile(url) {
@@ -1589,7 +1592,8 @@ async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
   const jobs = [];
   for (let tx = t0x; tx <= t1x; tx++) for (let ty = t0y; ty <= t1y; ty++) {
     if (tx < 0 || ty < 0 || tx >= 2 ** z || ty >= 2 ** z) continue;
-    jobs.push(loadTile(`https://a.basemaps.cartocdn.com/light_all/${z}/${tx}/${ty}@2x.png`).then(img => {
+    const tileUrl = BASE_TILE_URL.replace('{z}', z).replace('{x}', tx).replace('{y}', ty);
+    jobs.push(loadTile(tileUrl).then(img => {
       if (img) ctx.drawImage(img, tx * 256, ty * 256, 256, 256);
     }));
   }
@@ -1616,9 +1620,10 @@ async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
   });
   ctx.restore();
   // atribuição
-  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 300, H - 32, 300, 32);
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 430, H - 50, 430, 50);
   ctx.fillStyle = '#566076'; ctx.font = '16px IBM Plex Sans, sans-serif';
-  ctx.fillText('© OpenStreetMap · © CARTO', W - 286, H - 10);
+  ctx.fillText('© OpenStreetMap contributors', W - 416, H - 29);
+  ctx.fillText('https://www.openstreetmap.org/copyright', W - 416, H - 9);
   return canvas.toDataURL('image/jpeg', .92);
 }
 async function decodeStageImages(stage) {
@@ -2635,6 +2640,90 @@ function initSettingsPanel() {
   }
 }
 
+/* ---------- atualização do Portal Inteligência (pipeline no Actions) ---------- */
+function initPortalRefresh() {
+  const btn = $('#atualizarPortalBtn'), status = $('#portalStatus');
+  if (!btn || !status) return;
+  let requestId = null, publicado = false, runUrl = '';
+  const mostrar = (mensagem, classe = '') => {
+    status.hidden = false;
+    status.className = 'upload-status portal-status mono' + (classe ? ' ' + classe : '');
+    status.textContent = mensagem;
+    if (runUrl) {
+      const link = document.createElement('a');
+      link.href = runUrl; link.target = '_blank'; link.rel = 'noopener';
+      link.textContent = 'Acompanhar execução';
+      status.append(document.createElement('br'), link);
+    }
+  };
+  const consultar = async (action, senha) => {
+    const r = await fetch('/api/atualizar-portal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, senha, requestId }), signal: AbortSignal.timeout(30000),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 401) senhaSessao = '';
+      throw new Error(j.error || `Não foi possível consultar a atualização (HTTP ${r.status}).`);
+    }
+    return j;
+  };
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const senha = pedirSenha('atualizar os dados do portal e recalcular as projeções');
+      if (!requestId) {
+        mostrar('Solicitando atualização dos dados do portal…');
+        const resposta = await consultar('start', senha);
+        requestId = resposta.requestId;
+      }
+      btn.textContent = 'Atualizando…';
+      mostrar('Atualização solicitada. Aguardando início da consulta ao portal…');
+      // Mantém o acompanhamento ao fechar o menu, sem disparar outra execução.
+      const limite = Date.now() + 30 * 60 * 1000;
+      while (Date.now() < limite) {
+        if (!publicado) {
+          const r = await consultar('status', senha);
+          runUrl = r.url || runUrl;
+          if (r.status === 'completed') {
+            if (r.conclusion !== 'success') {
+              requestId = null;
+              throw new Error('A atualização não foi concluída. Consulte a execução para ver o erro antes de tentar novamente.');
+            }
+            publicado = true;
+          } else {
+            mostrar(r.status === 'in_progress'
+              ? 'Consultando o portal e recalculando as projeções…'
+              : 'Atualização na fila. Aguardando o início da execução…');
+          }
+        }
+        if (publicado) {
+          mostrar('Dados recalculados. Aguardando a publicação do dashboard…');
+          // Conclusão do Actions não significa que a Vercel já publicou a nova base.
+          const r = await fetch(`data/atualizacao_of.json?request=${requestId}&t=${Date.now()}`, {
+            cache: 'no-store', signal: AbortSignal.timeout(15000),
+          });
+          if (r.ok) {
+            const marker = await r.json().catch(() => ({}));
+            if (marker.requestId === requestId) {
+              mostrar('Dados do portal atualizados. Recarregando o dashboard…', 'ok');
+              location.reload();
+              return;
+            }
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 10000));
+      }
+      mostrar('O acompanhamento foi pausado. Clique em Verificar para consultar a atualização já solicitada.');
+    } catch (err) {
+      if (err.message !== 'cancelado') mostrar(err.message || 'Não foi possível acompanhar a atualização. Clique em Verificar para retomar.', 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = requestId ? 'Verificar' : 'Atualizar';
+    }
+  };
+}
+
 /* ---------- upload da síntese (envia a planilha para o Neon) ----------
    O navegador não fala com o Postgres; manda em lotes para /api/upload-sintese,
    que grava numa staging e troca atômica pela tabela viva. Espelha as colunas de
@@ -2790,6 +2879,7 @@ applyAll();
 initEditableText();
 initAIChat();
 initSettingsPanel();
+initPortalRefresh();
 initSinteseUpload();
 initRestaurarMapa();
 /* a configuração vem do servidor e chega depois do primeiro render: aplicar aqui

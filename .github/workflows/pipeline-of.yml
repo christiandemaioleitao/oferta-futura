@@ -1,4 +1,6 @@
 name: Pipeline Oferta Futura
+run-name: >-
+  ${{ github.event.inputs.request_id && format('Portal: {0}', github.event.inputs.request_id) || 'Pipeline Oferta Futura' }}
 
 on:
   workflow_dispatch:
@@ -13,6 +15,9 @@ on:
         description: "Publicar mesmo com queda >10% de empreendimentos (use ao estreitar a janela de propósito)"
         type: boolean
         default: false
+      request_id:
+        description: "Identificador de acompanhamento do botão do dashboard (deixe vazio na execução manual)"
+        required: false
   schedule:
     # Todo dia 30 às 06:00 de Brasília (09:00 UTC); fevereiro não tem dia 30 — rodar manualmente se precisar
     - cron: "0 9 30 * *"
@@ -52,11 +57,20 @@ jobs:
         run: python scripts/pipeline_of.py
 
       - name: Commitar dados atualizados
+        env:
+          REQUEST_ID: ${{ github.event.inputs.request_id }}
         run: |
+          # O navegador só recarrega quando este marcador chegar ao deploy público.
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          with open('data/atualizacao_of.json', 'w') as f:
+              json.dump({'requestId': os.environ.get('REQUEST_ID', ''), 'atualizadoEm': datetime.now(timezone.utc).isoformat()}, f)
+          PY
           # autor = dono da conta Vercel, senão o deploy automático é bloqueado (Hobby)
           git config user.name "Christian Leitao"
           git config user.email "christiandemaio80@gmail.com"
-          git add data/dados_of.js data/mapa_of.js index.html
+          git add data/dados_of.js data/mapa_of.js data/atualizacao_of.json index.html
           if git diff --cached --quiet; then
             echo "Sem mudanças nos dados."
           else
