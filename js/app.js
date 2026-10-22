@@ -420,8 +420,8 @@ let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles;
 const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
-  baseTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap · &copy; CARTO', crossOrigin: true, maxZoom: 19,
+  baseTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors', crossOrigin: true, maxZoom: 19,
   }).addTo(map);
   satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
@@ -1589,7 +1589,7 @@ async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
   const jobs = [];
   for (let tx = t0x; tx <= t1x; tx++) for (let ty = t0y; ty <= t1y; ty++) {
     if (tx < 0 || ty < 0 || tx >= 2 ** z || ty >= 2 ** z) continue;
-    jobs.push(loadTile(`https://a.basemaps.cartocdn.com/light_all/${z}/${tx}/${ty}@2x.png`).then(img => {
+    jobs.push(loadTile(`https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`).then(img => {
       if (img) ctx.drawImage(img, tx * 256, ty * 256, 256, 256);
     }));
   }
