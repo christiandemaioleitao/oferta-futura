@@ -1,6 +1,7 @@
 // Sobe a planilha da SÍNTESE CONSOLIDADA para o Neon, direto do dashboard.
 // Substitui a tabela inteira via staging + troca atômica, então uma falha no meio
-// não derruba a tabela viva. Espelha scripts/upload_sintese.py (mesmas colunas/tipos).
+// não derruba a tabela viva. O schema vem de sintese_schema.json — o mesmo arquivo
+// que o cliente e o pipeline Python leem.
 //
 // Segurança: endpoint público de ESCRITA. Só funciona se SINTESE_UPLOAD_SENHA existir
 // no ambiente (Vercel). A senha viaja no corpo (HTTPS) e é conferida no servidor —
@@ -11,20 +12,11 @@
 //   POST {senha, action:'chunk', rows:[[...],…]} -> insere um lote (linhas em ordem de COLS)
 //   POST {senha, action:'commit', arquivo, total}-> troca staging -> viva + grava meta
 import { neon } from '@neondatabase/serverless';
+// fonte única do schema: sintese_schema.json na raiz (lido também por app.js e pelo
+// pipeline Python). 'n' = nome da coluna, 't' = tipo SQL no Postgres.
+import SCHEMA from '../sintese_schema.json';
 
-// nome + tipo SQL, na MESMA ordem de COLUNAS em scripts/upload_sintese.py
-const COLS = [
-  ['cidade', 'text'], ['bairro', 'text'], ['incorporadora', 'text'],
-  ['tipoempreendimento', 'text'], ['empreendimento', 'text'],
-  ['datainobr', 'date'], ['datahabt', 'date'], ['regional', 'text'], ['consorcio', 'text'],
-  ['totalunidades', 'double precision'], ['privativa', 'double precision'],
-  ['unidadesvendidasmes', 'double precision'], ['unidadesdistratadasmes', 'double precision'],
-  ['unidadesdisponiveis', 'double precision'], ['percevolucaoobra', 'double precision'],
-  ['tipologia', 'double precision'], ['precounidade', 'double precision'],
-  ['datalancamento', 'date'], ['data', 'date'],
-  ['macroregiao', 'double precision'], ['latitude', 'double precision'],
-  ['longitude', 'double precision'], ['lancou', 'text'],
-];
+const COLS = SCHEMA.map(c => [c.n, c.t]);
 const NCOL = COLS.length;
 const STAGE = 'sintese_stage';
 const LIVE = 'sintese_consolidada';

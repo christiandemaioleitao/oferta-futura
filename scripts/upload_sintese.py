@@ -8,29 +8,18 @@ Uso:
 Requer NEON_DATABASE_URL no ambiente ou em um arquivo .env na raiz do repo.
 A tabela é recriada a cada upload (substituição completa).
 """
+import json
 import sys
+from pathlib import Path
 
 import pandas as pd
 
 from of_common import load_env, neon_connect, copy_dataframe, set_meta
 
-COLUNAS = [
-    'cidade', 'bairro', 'incorporadora', 'tipoempreendimento', 'empreendimento',
-    'datainobr', 'datahabt', 'regional', 'consorcio', 'totalunidades', 'privativa',
-    'unidadesvendidasmes', 'unidadesdistratadasmes', 'unidadesdisponiveis',
-    'percevolucaoobra', 'tipologia', 'precounidade', 'datalancamento', 'data',
-    'macroregiao', 'latitude', 'longitude', 'lancou',
-]
-
-TIPOS = {
-    'datainobr': 'date', 'datahabt': 'date', 'datalancamento': 'date', 'data': 'date',
-    'totalunidades': 'double precision', 'privativa': 'double precision',
-    'unidadesvendidasmes': 'double precision', 'unidadesdistratadasmes': 'double precision',
-    'unidadesdisponiveis': 'double precision', 'percevolucaoobra': 'double precision',
-    'tipologia': 'double precision', 'precounidade': 'double precision',
-    'macroregiao': 'double precision', 'latitude': 'double precision',
-    'longitude': 'double precision',
-}
+# schema único da síntese: sintese_schema.json na raiz (mesmo arquivo da API e do cliente)
+_SCHEMA = json.loads((Path(__file__).resolve().parent.parent / 'sintese_schema.json').read_text(encoding='utf-8'))
+COLUNAS = [c['n'] for c in _SCHEMA]
+TIPOS = {c['n']: c['t'] for c in _SCHEMA if c['t'] != 'text'}
 
 
 def main():

@@ -1531,17 +1531,9 @@ function ensureLogo() {
 }
 ensureLogo();
 const logoSrc = () => LOGO_DATA || 'assets/logo-full.png';
-const MESES_MIN = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MESES_MIN = MESES.map(m => m.toLowerCase());
 const mesAno = m => m ? MESES_MIN[+m.slice(5, 7) - 1] + '/' + m.slice(0, 4) : '—';
-function periodoLabel() {
-  let a = state.from, b = state.to;
-  if (!a || !b) {
-    const ms = filtered.map(e => (e.dtLancamento || '').slice(0, 7)).filter(Boolean).sort();
-    if (!a) a = ms[0]; if (!b) b = ms[ms.length - 1];
-  }
-  if (!a && !b) return '—';
-  return `${mesAno(a)} – ${mesAno(b)}`;
-}
+const periodoLabel = () => launchWindowLabel(filtered);
 /* mapa estático em canvas (web mercator + tiles CARTO) — captura determinística p/ slides */
 const lngToX = (lng, z) => (lng + 180) / 360 * 256 * 2 ** z;
 const latToY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
@@ -1618,7 +1610,7 @@ async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
   // atribuição
   ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 300, H - 32, 300, 32);
   ctx.fillStyle = '#566076'; ctx.font = '16px IBM Plex Sans, sans-serif';
-  ctx.fillText('© OpenStreetMap · © CARTO', W - 286, H - 10);
+  ctx.fillText('© OpenStreetMap contributors', W - 286, H - 10);
   return canvas.toDataURL('image/jpeg', .92);
 }
 async function decodeStageImages(stage) {
@@ -1832,7 +1824,7 @@ function hexToKml(hex, alpha) { // #rrggbb -> aabbggrr
   const h = (hex || '#3A5AA0').replace('#', '');
   return alpha + h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2);
 }
-const xmlEsc = s => String(s ?? '').replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+const xmlEsc = escapeHtml;   // &#39; vale em XML como &apos;
 async function exportKmz() {
   const st = $('#importStatus');
   const feats = visibleKmzFeatures();
@@ -1994,10 +1986,9 @@ function aplicarTituloDaPagina() {
    termina em ':free'; id inventado devolve 404 na primeira pergunta. */
 const DEFAULT_AI_PROVIDER = 'openrouter', DEFAULT_AI_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const AI_PROVIDERS = {
-  openai: { label: 'OpenAI', type: 'chat', endpoint: 'https://api.openai.com/v1/chat/completions', models: ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'gpt-4.1'] },
-  deepseek: { label: 'DeepSeek', type: 'chat', endpoint: 'https://api.deepseek.com/chat/completions', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  mistral: { label: 'Mistral', type: 'chat', endpoint: 'https://api.mistral.ai/v1/chat/completions', models: ['mistral-small-latest', 'mistral-large-latest', 'open-mistral-nemo'] },
-  openrouter: { label: 'OpenRouter', type: 'chat', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [
+  /* único provedor: OpenRouter já proxies OpenAI/DeepSeek/Anthropic/Gemini/Groq —
+     e o campo "Modelo personalizado" aceita qualquer id com prefixo do vendor. */
+  openrouter: { label: 'OpenRouter', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: [
     { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'Nemotron 3 Ultra 550B · GRÁTIS (padrão)' },
     { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B · GRÁTIS' },
     { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B · GRÁTIS' },
@@ -2008,10 +1999,6 @@ const AI_PROVIDERS = {
     { id: 'minimax/minimax-m3', label: 'MiniMax M3' },
     { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B · OpenAI' },
   ] },
-  gemini: { label: 'Gemini', type: 'gemini', models: [{ id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }, { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' }] },
-  anthropic: { label: 'Anthropic', type: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }, { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' }, { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }] },
-  groq: { label: 'Groq', type: 'chat', endpoint: 'https://api.groq.com/openai/v1/chat/completions', models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'] },
-  together: { label: 'Together AI', type: 'chat', endpoint: 'https://api.together.xyz/v1/chat/completions', models: ['meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1', 'deepseek-ai/deepseek-coder-33b-instruct'] },
 };
 /* Provedor e modelo vêm do banco (valem para todos); a CHAVE de API continua só no
    localStorage de quem a cadastrou — ela é secreta e o /api/config é de leitura
@@ -2025,7 +2012,7 @@ function aiConfig() {
   };
 }
 function fillAIModels(provider, selected = '') {
-  const sel = $('#aiModel'), custom = $('#aiCustomModel'), p = AI_PROVIDERS[provider] || AI_PROVIDERS.openai;
+  const sel = $('#aiModel'), custom = $('#aiCustomModel'), p = AI_PROVIDERS[provider] || AI_PROVIDERS.openrouter;
   if (!sel) return;
   const opts = (p.models || []).map(m => typeof m === 'string' ? { id: m, label: m } : m);
   sel.innerHTML = opts.map(o => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label || o.id)}</option>`).join('');
@@ -2060,18 +2047,7 @@ function mdParaHtml(texto) {
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/^\s*[-*]\s+/gm, '• ');
 }
-async function copiarTexto(t) {
-  try { await navigator.clipboard.writeText(t); return true; }
-  catch (e) {
-    // clipboard API só existe em contexto seguro; no file:// cai no caminho antigo
-    const ta = document.createElement('textarea');
-    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
-  }
-}
+const copiarTexto = t => navigator.clipboard.writeText(t).then(() => true).catch(() => false);
 function appendAIMessage(role, text) {
   const box = $('#aiMessages'); if (!box) return;
   const div = document.createElement('div');
@@ -2134,21 +2110,10 @@ async function runNeonSQL(sql) {
 async function callAIProvider(messages) {
   const cfg = aiConfig(), p = AI_PROVIDERS[cfg.provider];
   if (!p || !cfg.key) throw new Error('cadastre uma chave de API no botão de chave (🔑) antes de perguntar.');
-  if (p.type === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: aiSystemPrompt() }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { temperature: .15, maxOutputTokens: 1400 } }) });
-    const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || 'Falha na API Gemini.');
-    return (data.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('\n').trim();
-  }
-  if (p.type === 'anthropic') {
-    const res = await fetch(p.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: cfg.model, max_tokens: 1400, temperature: .15, system: aiSystemPrompt(), messages }) });
-    const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || 'Falha na API Anthropic.');
-    return (data.content || []).map(x => x.text || '').join('\n').trim();
-  }
-  const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key };
-  if (cfg.provider === 'openrouter') { headers['HTTP-Referer'] = location.href || 'file://oferta-futura'; headers['X-Title'] = 'Oferta Futura EBM'; }
+  const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key, 'HTTP-Referer': location.href || 'file://oferta-futura', 'X-Title': 'Oferta Futura EBM' };
   const res = await fetch(p.endpoint, { method: 'POST', headers, body: JSON.stringify({ model: cfg.model, temperature: .15, max_tokens: 1400, messages: [{ role: 'system', content: aiSystemPrompt() }, ...messages] }) });
-  const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || data.message || 'Falha na API selecionada.');
-  return (data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '').trim();
+  const data = await res.json(); if (!res.ok) throw new Error(data.error?.message || data.message || 'Falha na API OpenRouter.');
+  return (data.choices?.[0]?.message?.content || '').trim();
 }
 const extractSQL = text => { const m = /```sql\s*([\s\S]*?)```/i.exec(text || ''); return m ? m[1].trim() : null; };
 /* Memória da conversa: guarda só pergunta + resposta final de cada rodada. As idas
@@ -2637,16 +2602,19 @@ function initSettingsPanel() {
 
 /* ---------- upload da síntese (envia a planilha para o Neon) ----------
    O navegador não fala com o Postgres; manda em lotes para /api/upload-sintese,
-   que grava numa staging e troca atômica pela tabela viva. Espelha as colunas de
-   scripts/upload_sintese.py. A senha vai no corpo (HTTPS) e é conferida no servidor. */
-const SINTESE_COLS = ['cidade', 'bairro', 'incorporadora', 'tipoempreendimento', 'empreendimento',
-  'datainobr', 'datahabt', 'regional', 'consorcio', 'totalunidades', 'privativa',
-  'unidadesvendidasmes', 'unidadesdistratadasmes', 'unidadesdisponiveis', 'percevolucaoobra',
-  'tipologia', 'precounidade', 'datalancamento', 'data', 'macroregiao', 'latitude', 'longitude', 'lancou'];
-const SINTESE_DATE = new Set(['datainobr', 'datahabt', 'datalancamento', 'data']);
-const SINTESE_NUM = new Set(['totalunidades', 'privativa', 'unidadesvendidasmes', 'unidadesdistratadasmes',
-  'unidadesdisponiveis', 'percevolucaoobra', 'tipologia', 'precounidade', 'macroregiao', 'latitude', 'longitude']);
+   que grava numa staging e troca atômica pela tabela viva. O schema vem de
+   sintese_schema.json (fonte única com a API e o pipeline Python). A senha vai
+   no corpo (HTTPS) e é conferida no servidor. */
 const SINTESE_CHUNK = 1000;
+/* schema único da síntese: sintese_schema.json na raiz (mesmo arquivo da API e do
+   pipeline Python). 't' = tipo SQL; 'k' = conversor do cliente (date/num/text). */
+const SCHEMA_SINTESE_URL = location.protocol === 'file:' ? 'https://oferta-futura.vercel.app/sintese_schema.json' : 'sintese_schema.json';
+let _schemaSintese = null;
+const carregarSchemaSintese = () => _schemaSintese
+  || fetch(SCHEMA_SINTESE_URL).then(r => {
+    if (!r.ok) throw new Error(`sintese_schema.json indisponível (${r.status})`);
+    return r.json();
+  }).then(j => (_schemaSintese = j));
 
 function coDate(v) {
   if (v == null || v === '') return null;
@@ -2668,26 +2636,29 @@ function coText(v) { if (v == null) return null; const s = String(v).trim(); ret
 /* cidades acompanhadas — precisa bater com CIDADES em scripts/converter_download_layout.py */
 const SINTESE_CIDADES = new Set(['GOIANIA', 'APARECIDA DE GOIANIA']);
 
-function planilhaParaLinhas(rowsAoA) {
+function planilhaParaLinhas(rowsAoA, SCHEMA) {
   if (!rowsAoA.length) throw new Error('Planilha vazia.');
   const header = rowsAoA[0].map(h => textKey(h).toLowerCase().replace(/\s+/g, ''));
+  const cols = SCHEMA.map(c => c.n);
   const idx = {};
-  SINTESE_COLS.forEach(c => { idx[c] = header.indexOf(c.toLowerCase()); });
-  const faltando = SINTESE_COLS.filter(c => idx[c] < 0);
+  cols.forEach(c => { idx[c] = header.indexOf(c); });
+  const faltando = cols.filter(c => idx[c] < 0);
   if (faltando.length) throw new Error('Colunas ausentes: ' + faltando.join(', '));
   // export bruto do Brain (DownloadLayout): tem colunas de controle além das 23.
   // Nele aplicamos o mesmo filtro de cidades do converter_download_layout.py —
   // subir as 20 cidades pro banco distorce curvas e estoque (aconteceu uma vez).
   const ehBrain = header.includes('importadorlayoutid') || header.includes('linkimagem');
+  const DATE = new Set(SCHEMA.filter(c => c.k === 'date').map(c => c.n));
+  const NUM = new Set(SCHEMA.filter(c => c.k === 'num').map(c => c.n));
   const linhas = [];
   let foraCidade = 0;
   for (let r = 1; r < rowsAoA.length; r++) {
     const row = rowsAoA[r];
     if (!row || row.every(c => c == null || c === '')) continue; // pula linha em branco
     if (ehBrain && !SINTESE_CIDADES.has(textKey(row[idx.cidade]))) { foraCidade++; continue; }
-    linhas.push(SINTESE_COLS.map(c => {
+    linhas.push(cols.map(c => {
       const v = row[idx[c]];
-      return SINTESE_DATE.has(c) ? coDate(v) : SINTESE_NUM.has(c) ? coNum(v) : coText(v);
+      return DATE.has(c) ? coDate(v) : NUM.has(c) ? coNum(v) : coText(v);
     }));
   }
   if (!linhas.length) throw new Error('Nenhuma linha de dados encontrada.');
@@ -2732,6 +2703,7 @@ async function postUpload(payload) {
 
 async function enviarSintese(senha, file, setStatus) {
   setStatus('Lendo planilha…', '');
+  const SCHEMA = await carregarSchemaSintese();
   let aoa;
   if (/\.csv$/i.test(file.name)) {
     // CSV nunca passa pelo SheetJS: as datas dd/mm viravam mm/dd (americano)
@@ -2740,12 +2712,12 @@ async function enviarSintese(senha, file, setStatus) {
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
     aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null, raw: true, blankrows: false });
   }
-  const { linhas, ehBrain, foraCidade } = planilhaParaLinhas(aoa);
+  const { linhas, ehBrain, foraCidade } = planilhaParaLinhas(aoa, SCHEMA);
   const total = linhas.length;
   if (ehBrain) setStatus(`Export do Brain detectado: ${fmtInt(foraCidade)} linhas de outras cidades descartadas.`, '');
   // a coluna 'data' da síntese é sempre o dia 1º do mês; qualquer outra coisa é
   // parser trocando dia/mês (já corrompeu a base uma vez) — aborta antes do banco
-  const iData = SINTESE_COLS.indexOf('data');
+  const iData = SCHEMA.findIndex(c => c.n === 'data');
   const foraDia1 = linhas.filter(l => l[iData] && !/-01$/.test(l[iData])).length;
   if (foraDia1 > total * 0.02)
     throw new Error(`${fmtInt(foraDia1)} linhas com 'data' fora do dia 1º — datas suspeitas, upload abortado.`);
