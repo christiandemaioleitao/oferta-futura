@@ -456,15 +456,14 @@ function initMap() {
   // opcional: renderBairros() remove o controle quando não há camada de bairros carregada
   const chkBairros = $('#lyrBairros');
   if (chkBairros) chkBairros.onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
-  // quadras/lotes: o toggle liga a MARCAÇÃO (tooltip permanente em cada terreno/localização)
-  const chkLotes = $('#lyrLotes');
-  if (chkLotes) chkLotes.onchange = e => { loteMarcas = e.target.checked; renderKmzLayers(); };
-  // busca por quadra/lote: filtra terrenos e localizações (nome do terreno ou do empreendimento vinculado) e voa até o resultado
+  initCadastroGyn();
+  // busca por quadra/lote: filtra os terrenos KMZ (nome do terreno ou empreendimento vinculado)
+  // e dispara a consulta ao cadastro oficial da Prefeitura (GYN_CADASTRO.buscar, adiante)
   $('#loteSearch')?.addEventListener('input', e => {
     loteBusca = e.target.value;
     renderKmzLayers();
     const q = textKey(loteBusca);
-    if (!q || !map) return;
+    if (!q || !map) { gynLimparResultado(); return; }
     const porId = Object.fromEntries(allEmps().map(x => [x.id, x]));
     const pts = [];
     visibleKmzFeatures().forEach(f => {
@@ -473,7 +472,7 @@ function initMap() {
       if (f.geometry.type === 'Polygon') f.geometry.coordinates[0].forEach(c => pts.push([c[1], c[0]]));
       else pts.push([f.geometry.coordinates[1], f.geometry.coordinates[0]]);
     });
-    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.25));
+    gynBuscar(loteBusca, pts);
   });
   $('#lyrSat').onchange = e => {
     if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); }
@@ -485,8 +484,7 @@ function initMap() {
 const BAIRRO_STOP = /^(SETOR|SET|JARDIM|JD|VILA|VL|PARQUE|PQ|RESIDENCIAL|RES|CONJUNTO|CONJ|CHACARA|CHACARAS|BAIRRO|FAZENDA|FAZ|LOTEAMENTO|LOT|CIDADE|DA|DO|DAS|DOS|DE)\s+/;
 function bairroKey(s) { let k = textKey(s); let p; do { p = k; k = k.replace(BAIRRO_STOP, ''); } while (k !== p && k); return k || textKey(s); }
 let bairroRenderer = null;
-/* toggle/busca das quadras e lotes — consumidos por renderKmzLayers() */
-let loteMarcas = false, loteBusca = '';
+let loteBusca = '';   // busca do mapa (QD/LOTE) — filtra KMZ e consulta o cadastro da Prefeitura
 function renderBairros(keys) {
   bairroLayer.clearLayers();
   const B = window.OF_BAIRROS || { features: [] };
@@ -514,16 +512,8 @@ function updateBairroLayer() {
     renderBairros();
   }
 }
-/* ---------- quadras e lotes (marcação + busca) ----------
-   Rótulo curto do terreno: "QD 65, PARQUE OESTE - TROPICAL" -> "QD 65";
-   "QD ÁREA (LOTE 297), ..." -> "QD ÁREA · LT 297". Sem QD no nome, cai no nome inteiro. */
-const rotuloLote = nome => {
-  const qd = /QD\.?\s*([^,]{1,24})/i.exec(nome || '');
-  if (!qd) return nome || '';
-  const quadra = qd[1].replace(/\(.*$/, '').trim();
-  const lt = /LOTE\s*([^)]+)\)?/i.exec(qd[1]);
-  return lt ? `QD ${quadra} · LT ${lt[1].trim()}` : `QD ${quadra}`;
-};
+/* busca por quadra/lote casa o nome do terreno KMZ ou o empreendimento vinculado —
+   o cadastro oficial de quadras e lotes da Prefeitura (GYN_CADASTRO, adiante) usa a mesma busca */
 const loteCasa = (p, emp, q) => !q
   || textKey(p.name).includes(q)
   || (emp && textKey(emp.empreendimento).includes(q));
@@ -539,15 +529,13 @@ function renderKmzLayers() {
     const sub = emp ? escapeHtml(emp.empreendimento) + ' · ' : '';
     if (f.geometry.type === 'Polygon') {
       const latlngs = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
-      const poly = L.polygon(latlngs, { color: p.stroke || BLUE, weight: 1.6, fillColor: p.fill || BLUE, fillOpacity: .28 });
-      if (loteMarcas) poly.bindTooltip(rotuloLote(p.name), { permanent: true, direction: 'center', className: 'lote-tip' });
-      poly.bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}TERRENO</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
+      L.polygon(latlngs, { color: p.stroke || BLUE, weight: 1.6, fillColor: p.fill || BLUE, fillOpacity: .28 })
+        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}TERRENO</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
         .addTo(terrenoLayer);
     } else if (f.geometry.type === 'Point') {
       const [lng, lat] = f.geometry.coordinates;
-      const mk = L.circleMarker([lat, lng], { radius: 5, color: '#fff', weight: 1.4, fillColor: p.color || BLUE, fillOpacity: .9 });
-      if (loteMarcas) mk.bindTooltip(rotuloLote(p.name), { permanent: true, direction: 'top', className: 'lote-tip' });
-      mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}LOCALIZAÇÃO · KMZ</span></div>`)
+      L.circleMarker([lat, lng], { radius: 5, color: '#fff', weight: 1.4, fillColor: p.color || BLUE, fillOpacity: .9 })
+        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}LOCALIZAÇÃO · KMZ</span></div>`)
         .addTo(pontoLayer);
     }
   });
@@ -581,6 +569,167 @@ function locateOnMap(id) {
   map.setView([e.lat, e.lng], Math.max(map.getZoom(), 16));
   const mk = empMarkers[id];
   if (mk) setTimeout(() => mk.openPopup(), 350);
+}
+
+/* ============================================================
+   Cadastro oficial da Prefeitura de Goiânia — quadras e lotes
+   Fonte: portalmapa.goiania.go.gov.br (ArcGIS REST — "Divisas de Quadra" 266 e
+   "Divisas de Lote" 265; o serviço libera CORS para o domínio do dashboard e
+   responde f=geojson em WGS84). São ~26 mil quadras e ~400 mil lotes: nada disso
+   cabe no navegador de uma vez, então cada camada baixa SÓ o retângulo visível
+   (e só acima do zoom em que a Prefeitura a exibe: quadra ≈ 1:4.000, lote ≈ 1:2.000).
+   Ao mover o mapa o recorte é buscado de novo (debounce). A busca por atributo
+   independe do toggle: "QD 65" acha quadras, "LT 12" acha lotes e "QD 65 LT 12"
+   junta as duas consultas pelo vínculo id (quadra) ↔ id_qdr (lote).
+   ============================================================ */
+const GYN_CADASTRO = {
+  base: 'https://portalmapa.goiania.go.gov.br/servicogyn/rest/services/MapaServer/Mapa_Basico3/MapServer/',
+  camada: { quadra: 266, lote: 265 },
+  campo: { quadra: 'nm_qdr', lote: 'nm_lot' },
+  zoomMin: { quadra: 14, lote: 16 },
+  limite: 3000,        // teto de polígonos por recorte — acima disso, aproximar o zoom
+  buscaLimite: 400,    // teto de resultados da busca por atributo
+};
+let quadraLayer = null, loteLayer = null, gynResultadoLayer = null;
+const gynAbort = {}, gynTimer = {};
+const gynEsc = v => String(v || '').replace(/'/g, "''");   // valor do usuário indo para cláusula WHERE
+
+function gynQuery(tipo, extra, slot) {
+  const chave = slot || tipo;   // viewport e busca abortam em canais separados
+  // f=json (esri): o serviço falha (400) com f=geojson acima de ~850 features
+  // com filtro espacial; em json aguenta 1000 e expõe exceededTransferLimit.
+  const p = new URLSearchParams({ f: 'json', outFields: GYN_CADASTRO.campo[tipo], returnGeometry: 'true', outSR: 4326, ...extra });
+  if (gynAbort[chave]) gynAbort[chave].abort();
+  gynAbort[chave] = new AbortController();
+  return fetch(`${GYN_CADASTRO.base}${GYN_CADASTRO.camada[tipo]}/query?${p}`, { signal: gynAbort[chave].signal })
+    .then(r => { if (!r.ok) throw new Error('serviço da Prefeitura respondeu ' + r.status); return r.json(); });
+}
+/* polígono esri -> latlngs do Leaflet (anel externo; rings[1+] são buracos) */
+const gynRings = f => (f.geometry && f.geometry.rings ? f.geometry.rings[0].map(c => [c[1], c[0]]) : null);
+
+const gynStatus = msg => { const el = $('#importStatus'); if (el && msg) el.textContent = msg; };
+
+function gynCarregarViewport(tipo, layer) {
+  if (!map || !layer || !map.hasLayer(layer)) return;
+  const z = map.getZoom(), min = GYN_CADASTRO.zoomMin[tipo];
+  if (z < min) { layer.clearLayers(); gynStatus(`APROXIME O ZOOM (${min}+) PARA VER ${tipo === 'quadra' ? 'AS QUADRAS' : 'OS LOTES'} DO CADASTRO`); return; }
+  const b = map.getBounds().pad(.15);
+  const recorte = {
+    where: '1=1',
+    geometry: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(','),
+    geometryType: 'esriGeometryEnvelope', inSR: 4326, spatialRel: 'esriSpatialRelIntersects',
+  };
+  /* o serviço corta em 1000 registros por página: pagina por resultOffset até esgotar
+     (ou exceededTransferLimit) ou bater o teto do cliente — aí o aviso manda aproximar */
+  const paginas = [];
+  const PAGINA = 1000;
+  const pagina = offset => gynQuery(tipo, { ...recorte, resultOffset: offset, resultRecordCount: PAGINA })
+    .then(fc => {
+      paginas.push(...(fc.features || []));
+      return ((fc.exceededTransferLimit || (fc.features || []).length === PAGINA) && paginas.length < GYN_CADASTRO.limite)
+        ? pagina(offset + PAGINA) : paginas;
+    });
+  pagina(0).then(feats => {
+    if (!map.hasLayer(layer) || !feats.length) return;
+    layer.clearLayers();
+    feats.forEach(f => {
+      const latlngs = gynRings(f);
+      if (!latlngs) return;
+      const nome = f.attributes[GYN_CADASTRO.campo[tipo]] || '';
+      const estilo = tipo === 'quadra'
+        ? { pane: 'gynCadastro', color: '#3A5AA0', weight: 1.2, fill: false }
+        : { pane: 'gynCadastro', color: '#566076', weight: .8, fillColor: '#566076', fillOpacity: .06 };
+      L.polygon(latlngs, estilo)
+        .bindTooltip(tipo === 'quadra' ? `QD ${nome}` : `LT ${nome}`, { sticky: true, direction: 'top', className: 'bairro-tip' })
+        .addTo(layer);
+    });
+    if (feats.length >= GYN_CADASTRO.limite)
+      gynStatus('MUITOS REGISTROS NESTE RECORTE — APROXIME O ZOOM PARA COMPLETAR');
+  }).catch(err => { if (err.name !== 'AbortError') { console.warn('cadastro GYN:', err.message); gynStatus('CADASTRO DA PREFEITURA INDISPONÍVEL: ' + (err.message || err)); } });
+}
+
+/* destaque de busca: desenha fora dos toggles (fica visível mesmo com a camada desligada) */
+function gynMostrarResultado(feats, rotulos, extraPts, hint) {
+  if (!gynResultadoLayer) return;
+  gynResultadoLayer.clearLayers();
+  feats.forEach((f, i) => {
+    const latlngs = gynRings(f);
+    if (!latlngs) return;
+    L.polygon(latlngs, { pane: 'gynCadastro', color: RED, weight: 2, fillColor: RED, fillOpacity: .12 })
+      .bindTooltip(rotulos[i], { permanent: true, direction: 'center', className: 'lote-tip' })
+      .addTo(gynResultadoLayer);
+  });
+  const pts = (extraPts || []).slice();
+  feats.forEach(f => (f.geometry.rings || []).forEach(ring => ring.forEach(c => pts.push([c[1], c[0]]))));
+  if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.2));
+  gynStatus(hint || '');
+}
+function gynLimparResultado() { if (gynResultadoLayer) gynResultadoLayer.clearLayers(); }
+
+function gynBuscar(texto, kmzPts) {
+  if (!map) return;
+  const t = String(texto || '').trim();
+  if (!t) { gynLimparResultado(); return; }
+  const qd = /(?:^|[\s,;])QD\.?\s*([^\s,;]+)/i.exec(t);
+  const lt = /(?:^|[\s,;])(?:LT|LOTE)\.?\s*([^\s,;]+)/i.exec(t);
+  const alvoQd = qd ? gynEsc(textKey(qd[1])) : null;
+  const alvoLt = lt ? gynEsc(textKey(lt[1])) : null;
+  const livre = !qd && !lt ? gynEsc(textKey(t)) : null;
+  /* quadras: número citado (QD x) ou texto livre — LIKE cobre "H6", "AREA", "8A" */
+  const buscarQuadras = alvoQd != null || livre != null;
+  const ondeQuadra = alvoQd != null ? `UPPER(nm_qdr) LIKE '%${alvoQd}%'` : `UPPER(nm_qdr) LIKE '%${livre}%'`;
+  if (alvoLt != null) {
+    /* lote citado: com QD, acha os ids das quadras primeiro e cruza por id_qdr */
+    const passoQuadras = alvoQd != null
+      ? gynQuery('quadra', { f: 'json', where: `UPPER(nm_qdr)='${alvoQd}'`, outFields: 'id', returnGeometry: 'false', resultRecordCount: 300 }, 'busca')
+          .then(r => (r.features || []).map(f => `'${gynEsc(f.attributes.id)}'`))
+      : Promise.resolve(null);
+    passoQuadras.then(ids => {
+      const ondeLote = `nm_lot='${alvoLt}'` + (ids && ids.length ? ` AND id_qdr IN (${ids.join(',')})` : '');
+      return gynQuery('lote', { where: ondeLote, outFields: 'nm_lot', resultRecordCount: GYN_CADASTRO.buscaLimite }, 'busca')
+        .then(fc => {
+          const feats = (fc.features || []).filter(f => gynRings(f));
+          const rotulo = alvoQd != null ? `QD ${alvoQd} · LT ${alvoLt}` : `LT ${alvoLt}`;
+          if (!feats.length) { gynStatus(`NADA ENCONTRADO PARA "${t.toUpperCase()}"`); return; }
+          const cortado = feats.length >= GYN_CADASTRO.buscaLimite;
+          gynMostrarResultado(feats, feats.map(() => rotulo), kmzPts,
+            `${fmtInt(feats.length)} ${alvoQd != null ? 'LOTE(S) NA QUADRA ' + alvoQd : 'LOTES "' + alvoLt + '"'}`
+            + (cortado ? ' — REFINE COM A QUADRA (EX.: QD 65 LT 12)' : ''));
+        });
+    }).catch(err => { if (err.name !== 'AbortError') { console.warn(err); gynStatus('BUSCA NO CADASTRO FALHOU: ' + (err.message || err)); } });
+  } else if (buscarQuadras) {
+    gynQuery('quadra', { where: ondeQuadra, outFields: 'nm_qdr', resultRecordCount: GYN_CADASTRO.buscaLimite }, 'busca')
+      .then(fc => {
+        const feats = (fc.features || []).filter(f => gynRings(f));
+        if (!feats.length) { gynStatus(`NADA ENCONTRADO PARA "${t.toUpperCase()}"`); return; }
+        gynMostrarResultado(feats, feats.map(f => 'QD ' + f.attributes.nm_qdr), kmzPts,
+          `${fmtInt(feats.length)} QUADRA(S) "${(alvoQd != null ? alvoQd : livre).replace(/''/g, "'")}"`);
+      })
+      .catch(err => { if (err.name !== 'AbortError') { console.warn(err); gynStatus('BUSCA NO CADASTRO FALHOU: ' + (err.message || err)); } });
+  } else {
+    gynLimparResultado();   // texto sem QD/LT nem número: nada a consultar no cadastro
+  }
+}
+
+function initCadastroGyn() {
+  map.createPane('gynCadastro');
+  map.getPane('gynCadastro').style.zIndex = 375;   // abaixo dos bairros (380) e dos marcadores (400)
+  quadraLayer = L.layerGroup();
+  loteLayer = L.layerGroup();
+  gynResultadoLayer = L.layerGroup().addTo(map);
+  const ligar = (tipo, layer) => e => {
+    if (e.target.checked) { map.addLayer(layer); gynCarregarViewport(tipo, layer); }
+    else { gynAbort[tipo]?.abort(); map.removeLayer(layer); }
+  };
+  $('#lyrQuadras').onchange = ligar('quadra', quadraLayer);
+  $('#lyrLotes').onchange = ligar('lote', loteLayer);
+  map.on('moveend', () => {
+    [['quadra', quadraLayer], ['lote', loteLayer]].forEach(([tipo, layer]) => {
+      if (!map.hasLayer(layer)) return;
+      clearTimeout(gynTimer[tipo]);
+      gynTimer[tipo] = setTimeout(() => gynCarregarViewport(tipo, layer), 350);
+    });
+  });
 }
 
 /* ---------- gráficos ---------- */

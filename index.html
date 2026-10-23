@@ -94,13 +94,14 @@
       <div class="card__head">
         <div><h2 data-editable="mapa-titulo">Mapa georreferenciado</h2><small data-editable="mapa-sub">Empreendimentos, terrenos e localizações do KMZ</small></div>
         <div class="map-legend mono">
-          <div class="search-box" style="padding:5px 9px" title="Busca terreno/empreendimento por quadra (QD) ou lote (LT) e voa até ele"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="loteSearch" placeholder="QD / LOTE" class="mono" /></div>
+          <div class="search-box" style="padding:5px 9px" title="Busca quadra ou lote no cadastro da Prefeitura (ex.: QD 65 · LT 12 · QD 65 LT 12) e filtra os terrenos monitorados"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="loteSearch" placeholder="QD / LOTE" class="mono" /></div>
           <label><input type="checkbox" id="lyrEmp" checked /><i class="dot dot--red"></i>OFERTA FUTURA</label>
           <span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:#0C1F55"></i>EBM</span>
           <label><input type="checkbox" id="lyrTerrenos" checked /><i class="dot dot--poly"></i>TERRENOS</label>
           <label><input type="checkbox" id="lyrPontos" /><i class="dot dot--navy"></i>LOCALIZAÇÕES KMZ</label>
           <label title="Terrenos monitorados sem data de lançamento ou previsão — direto do banco"><input type="checkbox" id="lyrSemData" /><i class="dot" style="background:#8A93A6"></i>SEM PREVISÃO</label>
-          <label title="Marca as quadras e lotes dos terrenos no mapa"><input type="checkbox" id="lyrLotes" /><i class="dot" style="background:#fff;border:1px solid var(--navy)"></i>QUADRAS E LOTES</label>
+          <label title="Quadras do cadastro oficial da Prefeitura de Goiânia — baixa o recorte visível (zoom 14+)"><input type="checkbox" id="lyrQuadras" /><i class="dot dot--poly"></i>QUADRAS</label>
+          <label title="Lotes do cadastro oficial da Prefeitura de Goiânia — baixa o recorte visível (zoom 16+)"><input type="checkbox" id="lyrLotes" /><i class="dot dot--navy"></i>LOTES</label>
           <label><input type="checkbox" id="lyrBairros" /><i class="dot" style="background:linear-gradient(45deg,#3A5AA0,#1B9E77,#E6AB02);border-radius:2px"></i>BAIRROS</label>
           <label><input type="checkbox" id="lyrSat" /><i class="dot" style="background:linear-gradient(135deg,#26443B,#7A8F5C);border-radius:2px"></i>SATÉLITE</label>
           <button type="button" class="pd-toggle mono" id="pdToggle" aria-expanded="false" title="Camadas do Plano Diretor de Goiânia 2022">PLANO DIRETOR <i>▾</i></button>
@@ -366,6 +367,6 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20261022-1500"></script>
+<script src="js/app.js?v=20261022-1700"></script>
 </body>
 </html>
