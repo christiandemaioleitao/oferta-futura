@@ -639,8 +639,11 @@ function gynCarregarViewport(tipo, layer) {
       const estilo = tipo === 'quadra'
         ? { pane: 'gynCadastro', color: '#3A5AA0', weight: 1.2, fill: false }
         : { pane: 'gynCadastro', color: '#566076', weight: .8, fillColor: '#566076', fillOpacity: .06 };
+      /* número pequeno no centro de cada quadra/lote; interactive:false para o
+         rótulo não roubar o clique do polígono */
       L.polygon(latlngs, estilo)
-        .bindTooltip(tipo === 'quadra' ? `QD ${nome}` : `LT ${nome}`, { sticky: true, direction: 'top', className: 'bairro-tip' })
+        .bindTooltip(tipo === 'quadra' ? `QD ${nome}` : `LT ${nome}`,
+          { permanent: true, direction: 'center', className: 'gyn-label', interactive: false })
         .addTo(layer);
     });
     if (feats.length >= GYN_CADASTRO.limite)
@@ -730,6 +733,56 @@ function initCadastroGyn() {
       gynTimer[tipo] = setTimeout(() => gynCarregarViewport(tipo, layer), 350);
     });
   });
+  // coordenadas: cola "lat, lng" (aceita vírgula/space/ponto-e-vírgula e decimal BR) e voa até o ponto
+  const coord = $('#coordSearch');
+  if (coord) {
+    const ir = () => {
+      const p = parseCoordenada(coord.value);
+      if (coord.value.trim() && !p) { gynStatus('COORDENADA NÃO ENTENDIDA — USE "LAT, LNG" (EX.: -16.7371172, -49.248412)'); return; }
+      irParaCoordenada(p);
+    };
+    coord.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ir(); } });
+    coord.addEventListener('change', ir);
+    coord.addEventListener('input', () => { if (!coord.value.trim()) irParaCoordenada(null); });
+  }
+}
+
+/* ---------- navegação por coordenada ---------- */
+let gynMarcadorCoord = null;
+/* aceita "-16.7371172,-49.248412", "-16,7371172;-49,248412", "lat lng" e Google Maps */
+function parseCoordenada(s) {
+  const t = String(s || '').trim();
+  if (!t) return null;
+  let a, b;
+  if (/https?:|@/i.test(t)) {
+    // link do Google Maps: extrai os dois primeiros números decimais
+    const nums = t.match(/-?\d+(?:\.\d+)?/g);
+    if (!nums || nums.length < 2) return null;
+    a = nums[0]; b = nums[1];
+  } else {
+    const porVirgula = t.split(',');
+    if (porVirgula.length === 2) { a = porVirgula[0]; b = porVirgula[1]; }
+    else if (porVirgula.length === 4) { a = `${porVirgula[0].trim()}.${porVirgula[1].trim()}`; b = `${porVirgula[2].trim()}.${porVirgula[3].trim()}`; }
+    else {
+      const nums = t.match(/-?\d+(?:[.,]\d+)?/g);
+      if (!nums || nums.length < 2) return null;
+      a = nums[0]; b = nums[1];
+    }
+  }
+  const lat = parseFloat(String(a).replace(',', '.')), lng = parseFloat(String(b).replace(',', '.'));
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+function irParaCoordenada(p) {
+  if (!map) return;
+  if (gynMarcadorCoord) { gynMarcadorCoord.remove(); gynMarcadorCoord = null; }
+  if (!p) { gynStatus(''); return; }
+  gynMarcadorCoord = L.circleMarker([p.lat, p.lng], { radius: 8, color: '#fff', weight: 2.5, fillColor: RED, fillOpacity: .95 })
+    .bindPopup(`<div class="map-pop"><b>${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</b><span class="mono">COORDENADA COLADA</span></div>`)
+    .addTo(map);
+  map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 17), { duration: .8 });
+  setTimeout(() => gynMarcadorCoord?.openPopup(), 900);
 }
 
 /* ---------- gráficos ---------- */

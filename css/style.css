@@ -136,6 +136,9 @@ button{font-family:inherit}
 /* rótulo permanente de quadra/lote (toggle QUADRAS E LOTES): chip navy, sem seta */
 .lote-tip{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.05em;font-weight:600;color:#fff;background:rgba(12,31,85,.92);border:0;border-radius:6px;padding:2px 7px;box-shadow:0 2px 8px rgba(12,31,85,.28)}
 .lote-tip::before{display:none}
+/* número pequeno no centro de cada quadra/lote do cadastro da Prefeitura */
+.gyn-label{font-family:var(--font-mono);font-size:8.5px;font-weight:600;letter-spacing:.03em;color:#0C1F55;background:rgba(255,255,255,.78);border:0;border-radius:4px;padding:0 4px;box-shadow:none;white-space:nowrap}
+.gyn-label::before{display:none}
 
 /* gráficos */
 .chart-box{position:relative;height:250px}
