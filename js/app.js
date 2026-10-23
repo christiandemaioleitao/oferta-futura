@@ -456,6 +456,25 @@ function initMap() {
   // opcional: renderBairros() remove o controle quando não há camada de bairros carregada
   const chkBairros = $('#lyrBairros');
   if (chkBairros) chkBairros.onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
+  // quadras/lotes: o toggle liga a MARCAÇÃO (tooltip permanente em cada terreno/localização)
+  const chkLotes = $('#lyrLotes');
+  if (chkLotes) chkLotes.onchange = e => { loteMarcas = e.target.checked; renderKmzLayers(); };
+  // busca por quadra/lote: filtra terrenos e localizações (nome do terreno ou do empreendimento vinculado) e voa até o resultado
+  $('#loteSearch')?.addEventListener('input', e => {
+    loteBusca = e.target.value;
+    renderKmzLayers();
+    const q = textKey(loteBusca);
+    if (!q || !map) return;
+    const porId = Object.fromEntries(allEmps().map(x => [x.id, x]));
+    const pts = [];
+    visibleKmzFeatures().forEach(f => {
+      const p = f.properties || {};
+      if (!loteCasa(p, p._empId ? porId[p._empId] : null, q)) return;
+      if (f.geometry.type === 'Polygon') f.geometry.coordinates[0].forEach(c => pts.push([c[1], c[0]]));
+      else pts.push([f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+    });
+    if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.25));
+  });
   $('#lyrSat').onchange = e => {
     if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); }
     else { map.removeLayer(satTiles); baseTiles.addTo(map); }
@@ -466,6 +485,8 @@ function initMap() {
 const BAIRRO_STOP = /^(SETOR|SET|JARDIM|JD|VILA|VL|PARQUE|PQ|RESIDENCIAL|RES|CONJUNTO|CONJ|CHACARA|CHACARAS|BAIRRO|FAZENDA|FAZ|LOTEAMENTO|LOT|CIDADE|DA|DO|DAS|DOS|DE)\s+/;
 function bairroKey(s) { let k = textKey(s); let p; do { p = k; k = k.replace(BAIRRO_STOP, ''); } while (k !== p && k); return k || textKey(s); }
 let bairroRenderer = null;
+/* toggle/busca das quadras e lotes — consumidos por renderKmzLayers() */
+let loteMarcas = false, loteBusca = '';
 function renderBairros(keys) {
   bairroLayer.clearLayers();
   const B = window.OF_BAIRROS || { features: [] };
@@ -493,23 +514,40 @@ function updateBairroLayer() {
     renderBairros();
   }
 }
+/* ---------- quadras e lotes (marcação + busca) ----------
+   Rótulo curto do terreno: "QD 65, PARQUE OESTE - TROPICAL" -> "QD 65";
+   "QD ÁREA (LOTE 297), ..." -> "QD ÁREA · LT 297". Sem QD no nome, cai no nome inteiro. */
+const rotuloLote = nome => {
+  const qd = /QD\.?\s*([^,]{1,24})/i.exec(nome || '');
+  if (!qd) return nome || '';
+  const quadra = qd[1].replace(/\(.*$/, '').trim();
+  const lt = /LOTE\s*([^)]+)\)?/i.exec(qd[1]);
+  return lt ? `QD ${quadra} · LT ${lt[1].trim()}` : `QD ${quadra}`;
+};
+const loteCasa = (p, emp, q) => !q
+  || textKey(p.name).includes(q)
+  || (emp && textKey(emp.empreendimento).includes(q));
 function renderKmzLayers() {
   if (!terrenoLayer || !pontoLayer) return;   // config pode chegar antes do initMap()
   terrenoLayer.clearLayers(); pontoLayer.clearLayers();
   const porId = Object.fromEntries(allEmps().map(e => [e.id, e]));
+  const q = loteBusca ? textKey(loteBusca) : '';
   visibleKmzFeatures().forEach(f => {
     const p = f.properties || {};
     const emp = p._empId ? porId[p._empId] : null;
+    if (q && !loteCasa(p, emp, q)) return;
     const sub = emp ? escapeHtml(emp.empreendimento) + ' · ' : '';
     if (f.geometry.type === 'Polygon') {
       const latlngs = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
-      L.polygon(latlngs, { color: p.stroke || BLUE, weight: 1.6, fillColor: p.fill || BLUE, fillOpacity: .28 })
-        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}TERRENO</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
+      const poly = L.polygon(latlngs, { color: p.stroke || BLUE, weight: 1.6, fillColor: p.fill || BLUE, fillOpacity: .28 });
+      if (loteMarcas) poly.bindTooltip(rotuloLote(p.name), { permanent: true, direction: 'center', className: 'lote-tip' });
+      poly.bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}TERRENO</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
         .addTo(terrenoLayer);
     } else if (f.geometry.type === 'Point') {
       const [lng, lat] = f.geometry.coordinates;
-      L.circleMarker([lat, lng], { radius: 5, color: '#fff', weight: 1.4, fillColor: p.color || BLUE, fillOpacity: .9 })
-        .bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}LOCALIZAÇÃO · KMZ</span></div>`)
+      const mk = L.circleMarker([lat, lng], { radius: 5, color: '#fff', weight: 1.4, fillColor: p.color || BLUE, fillOpacity: .9 });
+      if (loteMarcas) mk.bindTooltip(rotuloLote(p.name), { permanent: true, direction: 'top', className: 'lote-tip' });
+      mk.bindPopup(`<div class="map-pop"><b>${escapeHtml(p.name)}</b><span class="mono">${sub}LOCALIZAÇÃO · KMZ</span></div>`)
         .addTo(pontoLayer);
     }
   });
