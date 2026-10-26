@@ -34,7 +34,7 @@ let filtered = [];
    quem editou, no navegador em que editou, e sumiam ao trocar de máquina. Agora
    a fonte da verdade é o banco, então quem abrir o site depois vê o mesmo.
    ============================================================ */
-const CFG_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/config' : 'https://oferta-futura.vercel.app/api/config';
+const CFG_ENDPOINT = '/api/config';
 let SITE_CFG = {}, SITE_CFG_QUANDO = {};
 let senhaSessao = '';   // vive só na memória da aba — senha de servidor não vai para o localStorage
 const cfgPronta = carregarConfig();
@@ -2314,7 +2314,7 @@ function appendAIMessage(role, text) {
   return div;
 }
 /* o chat consulta o banco Neon (fonte da verdade) via /api/sql — não o JSON do dashboard */
-const SQL_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/sql' : 'https://oferta-futura.vercel.app/api/sql';
+const SQL_ENDPOINT = '/api/sql';
 function aiSystemPrompt() {
   return `Você é um analista de inteligência de mercado imobiliário da EBM Incorporadora (Goiânia). Responda em português do Brasil, direto e assertivo, números em pt-BR.
 
@@ -2840,6 +2840,74 @@ function initSettingsPanel() {
   }
 }
 
+/* ---------- atualização do Portal (pipeline SQL Server → dashboard) ---------- */
+const PORTAL_ENDPOINT = '/api/atualizar-portal';
+function initAtualizarPortal() {
+  const btn = $('#atualizarPortalBtn'), panel = $('#atualizarPortalPanel');
+  if (!btn || !panel) return;
+  const senha = $('#portalSenha'), iniciar = $('#portalIniciar'), status = $('#portalStatus');
+  let runId = null, busy = false;
+  const setStatus = (msg, cls = '') => { status.textContent = msg; status.className = 'upload-status mono' + (cls ? ' ' + cls : ''); };
+  btn.onclick = e => {
+    e.stopPropagation(); panel.hidden = !panel.hidden;
+    btn.setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden && !busy) senha.focus();
+  };
+  async function consultar(action) {
+    const r = await fetch(PORTAL_ENDPOINT, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha: senha.value.trim(), action, ...(runId ? { id: runId } : {}) }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+    if (!j.run?.id) throw new Error('Não foi possível identificar a atualização. Verifique o andamento no GitHub antes de tentar novamente.');
+    runId = j.run.id;
+    return j.run;
+  }
+  panel.onsubmit = async e => {
+    e.preventDefault();
+    if (busy || !senha.value.trim()) return;
+    busy = true; iniciar.disabled = true; senha.disabled = true;
+    panel.setAttribute('aria-busy', 'true');
+    setStatus(runId ? 'Verificando andamento…' : 'Solicitando atualização…');
+    try {
+      let run = await consultar(runId ? 'status' : 'iniciar');
+      const limite = Date.now() + 20 * 60 * 1000;
+      while (Date.now() < limite) {
+        if (run.status === 'completed') {
+          if (run.conclusion !== 'success') {
+            runId = null;
+            throw new Error(`A atualização terminou sem sucesso (${run.conclusion || 'desconhecido'}). Consulte o pipeline no GitHub.`);
+          }
+          setStatus('Dados recalculados. Aguardando publicação do dashboard…');
+          const base = location.protocol === 'file:' ? 'https://oferta-futura.vercel.app/' : location.href;
+          const url = new URL('data/atualizacao.json', base);
+          url.searchParams.set('v', Date.now());
+          const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+          const marker = r.ok ? await r.json().catch(() => ({})) : {};
+          if (/^\d+$/.test(String(marker.run_id)) && BigInt(marker.run_id) >= BigInt(runId)) {
+            setStatus('✓ Dados publicados. Recarregando o dashboard…', 'ok');
+            location.reload();
+            return;
+          }
+        } else {
+          setStatus(run.status === 'in_progress' ? 'Consultando o Portal e recalculando as projeções…' : 'Atualização na fila. Aguarde…');
+        }
+        await new Promise(resolve => setTimeout(resolve, 8000));
+        if (run.status !== 'completed') run = await consultar('status');
+      }
+      setStatus('A atualização ainda não foi confirmada no site. Clique em Verificar andamento para continuar acompanhando.');
+    } catch (err) {
+      setStatus('✕ ' + (err.message || err) + (runId ? '\nClique em Verificar andamento para retomar.' : ''), 'err');
+    } finally {
+      busy = false; iniciar.disabled = false; senha.disabled = false;
+      panel.setAttribute('aria-busy', 'false');
+      iniciar.textContent = runId ? 'Verificar andamento' : 'Iniciar atualização';
+    }
+  };
+}
+
 /* ---------- upload da síntese (envia a planilha para o Neon) ----------
    O navegador não fala com o Postgres; manda em lotes para /api/upload-sintese,
    que grava numa staging e troca atômica pela tabela viva. O schema vem de
@@ -2848,7 +2916,7 @@ function initSettingsPanel() {
 const SINTESE_CHUNK = 1000;
 /* schema único da síntese: sintese_schema.json na raiz (mesmo arquivo da API e do
    pipeline Python). 't' = tipo SQL; 'k' = conversor do cliente (date/num/text). */
-const SCHEMA_SINTESE_URL = location.protocol === 'file:' ? 'https://oferta-futura.vercel.app/sintese_schema.json' : 'sintese_schema.json';
+const SCHEMA_SINTESE_URL = '/sintese_schema.json';
 let _schemaSintese = null;
 const carregarSchemaSintese = () => _schemaSintese
   || fetch(SCHEMA_SINTESE_URL).then(r => {
@@ -3002,6 +3070,7 @@ applyAll();
 initEditableText();
 initAIChat();
 initSettingsPanel();
+initAtualizarPortal();
 initSinteseUpload();
 initRestaurarMapa();
 /* a configuração vem do servidor e chega depois do primeiro render: aplicar aqui

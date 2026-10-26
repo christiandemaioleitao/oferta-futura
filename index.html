@@ -9,9 +9,31 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261022-1900" />
+<link rel="stylesheet" href="css/style.css?v=20261026-sg" />
 </head>
 <body>
+<main class="sg-gate" id="sgGate">
+  <section class="sg-card" aria-label="Controle de acesso">
+    <img src="assets/logo-symbol.png" alt="EBM Inteligência" width="56" height="56" />
+    <h1>Oferta Futura</h1>
+    <p class="sg-info" id="sgMessage" role="status">Validando acesso…</p>
+    <form id="sgEmailForm" hidden>
+      <label for="sgEmailInput">E-mail corporativo</label>
+      <input id="sgEmailInput" type="email" autocomplete="email" placeholder="nome@ebm.com.br" maxlength="254" required />
+      <p class="sg-info">Se o e-mail estiver autorizado, enviaremos um código de uso único.</p>
+      <button type="submit">Enviar código</button>
+    </form>
+    <form id="sgOtpForm" hidden>
+      <label for="sgOtpInput">Código recebido por e-mail</label>
+      <input id="sgOtpInput" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
+      <button type="submit">Confirmar código</button>
+      <button class="sg-secondary" id="sgChangeEmail" type="button">Usar outro e-mail ou reenviar</button>
+    </form>
+    <p class="sg-error" id="sgError" role="alert"></p>
+    <noscript>Ative o JavaScript para validar seu acesso.</noscript>
+  </section>
+</main>
+<div id="dashboardRoot" hidden>
 
 <!-- ================= CABEÇALHO ================= -->
 <header class="top">
@@ -313,6 +335,13 @@
     <label class="settings-row"><span><b>Rótulos de dados</b><small>Valores nos gráficos de oferta e lançamentos</small></span><input class="switch" id="dataLabelsBtn" type="checkbox" title="Rótulos de dados" aria-label="Rótulos de dados" /></label>
     <label class="settings-row"><span><b>Mês de referência</b><small>Ponto vermelho da oferta disponível por mês</small></span><input class="settings-month" id="refMonthInput" type="month" title="Mês de referência" aria-label="Mês de referência" /></label>
     <div class="settings-row settings-row--btn" id="restaurarMapaRow" hidden><span><b>Mapa importado</b><small>Voltar ao KMZ gerado pelo pipeline</small></span><button class="settings-action" id="restaurarMapaBtn" type="button">Restaurar</button></div>
+    <div class="settings-row settings-row--btn"><span><b>Dados do Portal</b><small>Atualizar o dashboard com o Portal da Inteligência</small></span><button class="settings-action" id="atualizarPortalBtn" type="button" aria-expanded="false" aria-controls="atualizarPortalPanel">Atualizar</button></div>
+    <form class="upload-sintese" id="atualizarPortalPanel" hidden>
+      <label for="portalSenha">Senha administrativa</label>
+      <input class="settings-month upload-senha" id="portalSenha" type="password" placeholder="Mesma senha da síntese" autocomplete="off" required />
+      <button class="settings-action" id="portalIniciar" type="submit">Iniciar atualização</button>
+      <div class="upload-status mono" id="portalStatus" role="status" aria-live="polite"></div>
+    </form>
     <div class="settings-row settings-row--btn"><span><b>Base da síntese</b><small>Substituir sintese_consolidada no banco</small></span><button class="settings-action" id="uploadSinteseBtn" type="button">Atualizar</button></div>
     <div class="upload-sintese" id="uploadSintesePanel" hidden>
       <input class="settings-month upload-senha" id="uploadSenha" type="password" placeholder="Senha" autocomplete="off" />
@@ -320,6 +349,7 @@
       <button class="settings-action" id="uploadPick" type="button">Escolher planilha…</button>
       <div class="upload-status mono" id="uploadStatus"></div>
     </div>
+    <div class="settings-row settings-row--btn"><span><b>Sessão SG</b><small id="sgSessionEmail"></small></span><button class="settings-action" id="sgLogout" type="button">Sair</button></div>
   </div>
 </div>
 
@@ -357,17 +387,19 @@
 <div id="pdfStage" aria-hidden="true"></div>
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
-<script src="data/dados_of.js?v=20260805-1720"></script>
-<script src="data/mapa_of.js?v=20260805-1720"></script>
-<script src="data/bairros_of.js?v=20260805-1720"></script>
+</div><!-- dashboardRoot: só é exibido depois da validação SG -->
+<script type="text/plain" data-sg-src="data/dados_of.js?v=20260805-1720"></script>
+<script type="text/plain" data-sg-src="data/mapa_of.js?v=20260805-1720"></script>
+<script type="text/plain" data-sg-src="data/bairros_of.js?v=20260805-1720"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
-<script src="data/plano_diretor.js?v=20260805-1720"></script>
+<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20260805-1720"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20261022-1900"></script>
+<script type="text/plain" data-sg-src="js/app.js?v=20261026-sg"></script>
+<script src="js/security-gate.js?v=20261026-sg"></script>
 </body>
 </html>

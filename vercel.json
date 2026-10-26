@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/secure-data.js": { "includeFiles": "{data/**,sintese_schema.json}" }
+  },
+  "rewrites": [
+    { "source": "/data/:file*", "destination": "/api/secure-data?file=:file*" },
+    { "source": "/sintese_schema.json", "destination": "/api/secure-data?file=sintese_schema.json" }
+  ],
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "X-Robots-Tag", "value": "noindex, nofollow, noarchive" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+      { "key": "Cache-Control", "value": "private, no-store" }
+    ] }
+  ]
+}

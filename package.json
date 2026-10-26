@@ -1,6 +1,11 @@
 {
   "name": "oferta-futura",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/audit-security.mjs && node scripts/build-site.mjs && node scripts/audit-security.mjs --output",
+    "test": "node --experimental-test-module-mocks --test tests/*.test.mjs"
+  },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4"
   }
