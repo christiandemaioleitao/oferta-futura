@@ -3,6 +3,10 @@ name: Pipeline Oferta Futura
 on:
   workflow_dispatch:
     inputs:
+      manter_parametros:
+        description: "Reutilizar data base e fator da última projeção (usado pelo dashboard)"
+        type: boolean
+        default: false
       data_base:
         description: "Data base (mm/aaaa) - a janela e a projeção vão daqui até +18 meses"
         default: "01/2026"
@@ -47,16 +51,19 @@ jobs:
           SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
           OF_DATA_BASE: ${{ github.event.inputs.data_base || '01/2026' }}
           FATOR_AJUSTE: ${{ github.event.inputs.fator_ajuste || '1.0' }}
+          OF_MANTER_PARAMETROS: ${{ github.event.inputs.manter_parametros == 'true' && '1' || '0' }}
           # escape da guarda de sanidade; o agendamento nunca ignora a queda
           OF_IGNORAR_QUEDA: ${{ github.event.inputs.ignorar_queda == 'true' && '1' || '0' }}
         run: python scripts/pipeline_of.py
 
       - name: Commitar dados atualizados
         run: |
+          # O navegador só recarrega quando este marcador e os dados chegam ao site.
+          python -c 'import json, os; from pathlib import Path; Path("data/atualizacao.json").write_text(json.dumps({"run_id": os.environ["GITHUB_RUN_ID"]}))'
           # autor = dono da conta Vercel, senão o deploy automático é bloqueado (Hobby)
           git config user.name "Christian Leitao"
           git config user.email "christiandemaio80@gmail.com"
-          git add data/dados_of.js data/mapa_of.js index.html
+          git add data/dados_of.js data/mapa_of.js data/atualizacao.json index.html
           if git diff --cached --quiet; then
             echo "Sem mudanças nos dados."
           else

@@ -27,6 +27,7 @@ js/app.js                  filtros, mapa, gráficos, PDF, imports, chat, ediçã
 api/sql.js                 função serverless: consulta somente-leitura ao Neon
 api/config.js              função serverless: config compartilhada (textos e mapa importado)
 api/upload-sintese.js      função serverless: substitui sintese_consolidada no Neon
+api/atualizar-portal.js    função serverless: inicia e acompanha o pipeline do Portal
 data/dados_of.js           window.OF_DATA   — empreendimentos + tipologias + série mensal
 data/mapa_of.js            window.OF_MAPA   — GeoJSON dos terrenos/pontos do KMZ
 data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já coloridos
@@ -105,6 +106,33 @@ Na Vercel, a função `/api/sql` usa `DATABASE_URL` (mesma string do Neon), conf
 O botão **Atualizar base da síntese** (dock de configurações → `/api/upload-sintese`) exige mais uma variável na Vercel: `SINTESE_UPLOAD_SENHA`. É a senha que o botão pede antes do upload; sem ela o endpoint recusa qualquer escrita (fica desligado). Use uma senha forte — é um endpoint público que substitui a tabela `sintese_consolidada` inteira. Ver §16.
 
 Localmente, um `.env` na raiz (ignorado pelo git) — ver `.env.example`.
+
+### Atualizar pelo dashboard
+
+Em **⚙️ Configurações → Dados do Portal → Atualizar**, informe a mesma senha
+administrativa do upload da síntese e clique em **Iniciar atualização**. O botão
+executa o workflow `pipeline-of.yml` no `main`, reutilizando data base e fator da
+última projeção (`of_meta.projecao_parametros`) e mantendo a guarda de sanidade.
+Sem esses metadados, o pipeline aborta e pede uma execução manual com parâmetros
+explícitos, para não trocar o recorte silenciosamente.
+Uma execução que já esteja na fila ou rodando é acompanhada
+sem solicitar outra. A planilha da síntese continua sendo atualizada separadamente.
+
+Configure na **Vercel** `GITHUB_ACTIONS_TOKEN`: token fine-grained restrito a
+`christiandemaioleitao/oferta-futura`, com **Actions: leitura e escrita**.
+`SINTESE_UPLOAD_SENHA` também precisa estar configurada. O token fica somente no
+servidor; nunca cole credenciais no JavaScript ou nos arquivos do repositório.
+As credenciais SQL existentes permanecem nos secrets do GitHub Actions.
+
+O painel mostra a fila, o processamento e a publicação. Depois do sucesso do
+pipeline, só recarrega quando o site servir `data/atualizacao.json` com o ID da
+execução (ou de uma mais recente), publicado no mesmo commit dos dados. Assim,
+a conclusão do cálculo não é confundida com a conclusão do deploy da Vercel.
+Se ocorrer falha de rede ou a espera ultrapassar 20 minutos, **Verificar andamento**
+retoma a consulta da execução sem iniciar outra. Falhas do pipeline aparecem no painel.
+
+Verificação da API: `node --test tests/atualizar-portal.test.mjs`.
+Verificação dos parâmetros (com as dependências do pipeline): `python tests/test_parametros_portal.py`.
 
 ### Guarda de sanidade
 

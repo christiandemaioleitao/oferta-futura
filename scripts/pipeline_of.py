@@ -16,6 +16,7 @@ Fluxo:
 Parâmetros (variáveis de ambiente):
   OF_DATA_BASE    mm/aaaa  data base da projeção                (padrão 01/2026)
   FATOR_AJUSTE    float    fator multiplicador da curva          (padrão 1.0)
+  OF_MANTER_PARAMETROS  1 reutiliza data base e fator gravados no Neon (botão do site)
 
 A data base é o único parâmetro de período. Dela saem os três prazos que o pipeline
 usa, todos amarrados aos 18 meses da curva de venda:
@@ -460,10 +461,25 @@ def atualizar_cache_buster():
         print(f'  cache-buster do index.html: ?v={token}')
 
 
+def parametros_anteriores(pg):
+    """O botão atualiza a base sem trocar silenciosamente o recorte da projeção."""
+    with pg.cursor() as cur:
+        cur.execute("SELECT valor FROM of_meta WHERE chave = %s", ('projecao_parametros',))
+        row = cur.fetchone()
+    match = re.fullmatch(r'base (\d{2}/\d{4}) \| janela [^|]+ \| fator (\d+(?:\.\d+)?)', str(row[0]) if row else '')
+    if not match:
+        raise ValueError('Parâmetros anteriores ausentes ou inválidos. Rode o pipeline manualmente com data base e fator explícitos.')
+    return match[1], float(match[2])
+
+
 def main():
     load_env()
     data_base = os.environ.get('OF_DATA_BASE', '01/2026')
     fator_ajuste = float(os.environ.get('FATOR_AJUSTE', '1.0').replace(',', '.'))
+    pg = None
+    if os.environ.get('OF_MANTER_PARAMETROS') == '1':
+        pg = neon_connect()
+        data_base, fator_ajuste = parametros_anteriores(pg)
     dt_ini = mes_ano(data_base)
     dt_fim = dt_ini + DateOffset(months=MESES_CURVA)
     # janela fecha no ÚLTIMO dia do mês final: um lançamento em 20/09/2027 pertence a
@@ -474,7 +490,7 @@ def main():
     print(f'Parâmetros: data base {lancto_ini} + {MESES_CURVA} meses '
           f'-> janela e projeção até {lancto_fim} | fator {fator_ajuste}')
 
-    pg = neon_connect()
+    pg = pg or neon_connect()
     df_s = ler_sintese_neon(pg)
     df_of = ler_empreendimentos_sql()
     df_sem_prev = gravar_sem_previsao(pg)

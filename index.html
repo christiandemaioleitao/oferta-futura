@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261022-1900" />
+<link rel="stylesheet" href="css/style.css?v=20261026-portal" />
 </head>
 <body>
 
@@ -313,6 +313,13 @@
     <label class="settings-row"><span><b>Rótulos de dados</b><small>Valores nos gráficos de oferta e lançamentos</small></span><input class="switch" id="dataLabelsBtn" type="checkbox" title="Rótulos de dados" aria-label="Rótulos de dados" /></label>
     <label class="settings-row"><span><b>Mês de referência</b><small>Ponto vermelho da oferta disponível por mês</small></span><input class="settings-month" id="refMonthInput" type="month" title="Mês de referência" aria-label="Mês de referência" /></label>
     <div class="settings-row settings-row--btn" id="restaurarMapaRow" hidden><span><b>Mapa importado</b><small>Voltar ao KMZ gerado pelo pipeline</small></span><button class="settings-action" id="restaurarMapaBtn" type="button">Restaurar</button></div>
+    <div class="settings-row settings-row--btn"><span><b>Dados do Portal</b><small>Atualizar o dashboard com o Portal da Inteligência</small></span><button class="settings-action" id="atualizarPortalBtn" type="button" aria-expanded="false" aria-controls="atualizarPortalPanel">Atualizar</button></div>
+    <form class="upload-sintese" id="atualizarPortalPanel" hidden>
+      <label for="portalSenha">Senha administrativa</label>
+      <input class="settings-month upload-senha" id="portalSenha" type="password" placeholder="Mesma senha da síntese" autocomplete="off" required />
+      <button class="settings-action" id="portalIniciar" type="submit">Iniciar atualização</button>
+      <div class="upload-status mono" id="portalStatus" role="status" aria-live="polite"></div>
+    </form>
     <div class="settings-row settings-row--btn"><span><b>Base da síntese</b><small>Substituir sintese_consolidada no banco</small></span><button class="settings-action" id="uploadSinteseBtn" type="button">Atualizar</button></div>
     <div class="upload-sintese" id="uploadSintesePanel" hidden>
       <input class="settings-month upload-senha" id="uploadSenha" type="password" placeholder="Senha" autocomplete="off" />
@@ -368,6 +375,6 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/app.js?v=20261022-1900"></script>
+<script src="js/app.js?v=20261026-portal"></script>
 </body>
 </html>
