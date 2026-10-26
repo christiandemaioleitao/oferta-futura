@@ -134,6 +134,14 @@ retoma a consulta da execução sem iniciar outra. Falhas do pipeline aparecem n
 Verificação da API: `node --test tests/atualizar-portal.test.mjs`.
 Verificação dos parâmetros (com as dependências do pipeline): `python tests/test_parametros_portal.py`.
 
+Auditoria dos dados reais, sem alterar o banco:
+`python scripts/verificar_importacao.py --saida relatorio-importacao.json`.
+Compara o arquivo publicado com o Neon: IDs, campos cadastrais, tipologias,
+séries mensais, quebras de estoque, mercado, terrenos sem previsão e metadados
+da síntese. O relatório distingue consistência da base de atualização: retorna
+código 1 se houver divergência ou upload da síntese posterior ao recálculo.
+Não acessa diretamente o SQL Server e não comprova a atualização da fonte do Portal.
+
 ### Guarda de sanidade
 
 Antes de gravar, o pipeline compara o número de empreendimentos da janela com o da execução anterior (guardado em `of_meta`). **Queda maior que 10% aborta a execução.**
