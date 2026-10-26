@@ -31,6 +31,7 @@ for (const file of api) {
   check(body.trimStart().startsWith('if (!(await requireApiSession(req, res))) return;'), `${file}: sessão deve ser a primeira instrução do handler.`);
 }
 check(/^\.env\*$/m.test(read('.gitignore')), '.gitignore deve ignorar .env*.');
+for (const file of ['audit-security.mjs', 'build-site.mjs']) check(read('.vercelignore').includes('!scripts/' + file), `A Vercel precisa incluir scripts/${file}.`);
 const config = JSON.parse(read('vercel.json'));
 check(config.outputDirectory === 'dist', 'A Vercel deve publicar somente dist.');
 check(config.buildCommand === 'npm run build', 'A Vercel deve executar a auditoria no build.');
