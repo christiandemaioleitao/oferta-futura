@@ -1,4 +1,5 @@
 // O SQL Server continua acessível só pelo pipeline; o token do GitHub fica no servidor.
+import { requireApiSession } from '../lib/security-node.mjs';
 const REPO = 'christiandemaioleitao/oferta-futura';
 const WORKFLOW = 'pipeline-of.yml';
 const BRANCH = 'main';
@@ -7,6 +8,7 @@ const ORIGENS = [/^https:\/\/oferta-futura[a-z0-9-]*\.vercel\.app$/, /^http:\/\/
 const resumo = run => ({ id: run.id, status: run.status, conclusion: run.conclusion || null });
 
 export default async function handler(req, res) {
+  if (!(await requireApiSession(req, res))) return;
   const origin = req.headers.origin || '';
   if (ORIGENS.some(re => re.test(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);

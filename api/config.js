@@ -2,15 +2,16 @@
 // KMZ importado. Fica no Neon porque o localStorage guardava só no navegador de quem
 // editou — outro usuário nunca via a mudança, e bastava trocar de máquina para "perder".
 //
-//   GET  /api/config                    -> {config: {...}}  leitura pública
+//   GET  /api/config                    -> {config: {...}}  leitura com sessão SG
 //   POST {senha, chave, valor}          -> grava a chave inteira
 //   POST {senha, chave, patch}          -> mescla no objeto já gravado (jsonb ||)
 //   POST {senha, chave, apagar:true}    -> remove a chave (volta ao padrão do repositório)
 //
 // Segurança: a escrita usa a MESMA senha do upload da síntese (SINTESE_UPLOAD_SENHA),
 // conferida no servidor. Sem a variável, só a leitura funciona. As chaves são uma
-// whitelist: um endpoint público de escrita não pode aceitar nome de chave arbitrário.
+// whitelist: a escrita não pode aceitar nome de chave arbitrário.
 import { neon } from '@neondatabase/serverless';
+import { requireApiSession } from '../lib/security-node.mjs';
 
 const ORIGENS = [/^https:\/\/oferta-futura[a-z0-9-]*\.vercel\.app$/, /^http:\/\/localhost(:\d+)?$/];
 // 'ia' guarda só provedor + modelo. A CHAVE de API nunca entra aqui: o GET é
@@ -27,6 +28,7 @@ const ddl = sql => sql(`CREATE TABLE IF NOT EXISTS ${TABELA} (
 )`);
 
 export default async function handler(req, res) {
+  if (!(await requireApiSession(req, res))) return;
   const origin = req.headers.origin || '';
   if (ORIGENS.some(re => re.test(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);

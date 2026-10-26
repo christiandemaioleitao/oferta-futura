@@ -24,6 +24,18 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
+.sg-gate{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;overflow:auto;padding:24px;background:#F4F6F9}
+.sg-card{width:100%;max-width:420px;padding:32px;background:#fff;border:1px solid #DCE2EC;border-radius:16px;box-shadow:0 10px 28px rgba(12,31,85,.1);text-align:center}
+.sg-card h1{font:700 22px var(--font-display);color:var(--navy);margin:14px 0}
+.sg-card form{display:grid;gap:12px;text-align:left;margin-top:24px}
+.sg-card label{font-size:13px;font-weight:600;color:var(--navy)}
+.sg-card input{height:44px;width:100%;border:1px solid #C5CDDA;border-radius:8px;padding:0 12px;font:inherit;font-size:14px}
+.sg-card input:focus{outline:2px solid var(--navy-500);outline-offset:2px}
+.sg-card button{min-height:44px;border:0;border-radius:8px;background:var(--navy);color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.sg-card button:disabled{opacity:.55;cursor:wait}
+.sg-card .sg-secondary{background:#F4F6F9;color:var(--navy)}
+.sg-info{font-size:13px;line-height:1.5;color:var(--gray-600)}
+.sg-error{color:var(--red);font-size:13px;line-height:1.5}
 html{scroll-behavior:smooth}
 body{font-family:var(--font-body);background:var(--paper);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
 .mono{font-family:var(--font-mono)}

@@ -6,10 +6,12 @@ Não executa o pipeline nem altera tabelas. A fonte SQL Server não é acessada.
 import argparse
 import json
 import math
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 
 def auditar(url):
@@ -17,10 +19,18 @@ def auditar(url):
     checks = []
 
     def get(path, body=None):
+        headers = {'Content-Type': 'application/json', 'Cache-Control': 'no-cache'}
+        if os.environ.get('SG_SESSION_COOKIE'):
+            headers['Cookie'] = os.environ['SG_SESSION_COOKIE']
         req = Request(url + path, data=json.dumps(body).encode() if body else None,
-                      headers={'Content-Type': 'application/json', 'Cache-Control': 'no-cache'})
-        with urlopen(req, timeout=60) as response:
-            return response.read().decode('utf-8')
+                      headers=headers)
+        try:
+            with urlopen(req, timeout=60) as response:
+                return response.read().decode('utf-8')
+        except HTTPError as err:
+            if err.code == 401:
+                raise SystemExit('Sessão SG necessária. Informe um cookie de sessão válido em SG_SESSION_COOKIE, sem versioná-lo ou compartilhá-lo.') from None
+            raise
 
     def sql(query):
         result = json.loads(get('/api/sql', {'sql': query}))

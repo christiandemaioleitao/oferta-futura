@@ -34,7 +34,7 @@ let filtered = [];
    quem editou, no navegador em que editou, e sumiam ao trocar de máquina. Agora
    a fonte da verdade é o banco, então quem abrir o site depois vê o mesmo.
    ============================================================ */
-const CFG_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/config' : 'https://oferta-futura.vercel.app/api/config';
+const CFG_ENDPOINT = '/api/config';
 let SITE_CFG = {}, SITE_CFG_QUANDO = {};
 let senhaSessao = '';   // vive só na memória da aba — senha de servidor não vai para o localStorage
 const cfgPronta = carregarConfig();
@@ -2314,7 +2314,7 @@ function appendAIMessage(role, text) {
   return div;
 }
 /* o chat consulta o banco Neon (fonte da verdade) via /api/sql — não o JSON do dashboard */
-const SQL_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/sql' : 'https://oferta-futura.vercel.app/api/sql';
+const SQL_ENDPOINT = '/api/sql';
 function aiSystemPrompt() {
   return `Você é um analista de inteligência de mercado imobiliário da EBM Incorporadora (Goiânia). Responda em português do Brasil, direto e assertivo, números em pt-BR.
 
@@ -2841,7 +2841,7 @@ function initSettingsPanel() {
 }
 
 /* ---------- atualização do Portal (pipeline SQL Server → dashboard) ---------- */
-const PORTAL_ENDPOINT = /vercel\.app$/.test(location.hostname) ? '/api/atualizar-portal' : 'https://oferta-futura.vercel.app/api/atualizar-portal';
+const PORTAL_ENDPOINT = '/api/atualizar-portal';
 function initAtualizarPortal() {
   const btn = $('#atualizarPortalBtn'), panel = $('#atualizarPortalPanel');
   if (!btn || !panel) return;
@@ -2916,7 +2916,7 @@ function initAtualizarPortal() {
 const SINTESE_CHUNK = 1000;
 /* schema único da síntese: sintese_schema.json na raiz (mesmo arquivo da API e do
    pipeline Python). 't' = tipo SQL; 'k' = conversor do cliente (date/num/text). */
-const SCHEMA_SINTESE_URL = location.protocol === 'file:' ? 'https://oferta-futura.vercel.app/sintese_schema.json' : 'sintese_schema.json';
+const SCHEMA_SINTESE_URL = '/sintese_schema.json';
 let _schemaSintese = null;
 const carregarSchemaSintese = () => _schemaSintese
   || fetch(SCHEMA_SINTESE_URL).then(r => {

@@ -1,10 +1,9 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { SESSION_COOKIE } from '../lib/security.mjs';
 
-// Importa como ESM sem alterar o tipo do pacote usado pelas outras funções Vercel.
-const source = await readFile(new URL('../api/atualizar-portal.js', import.meta.url), 'utf8');
-const { default: handler } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+mock.module('../lib/security-db.mjs', { namedExports: { getSessionFromToken: async () => ({ email: 'teste@ebm.com.br' }) } });
+const { default: handler } = await import('../api/atualizar-portal.js');
 const run = { id: 123, status: 'completed', conclusion: 'success', path: '.github/workflows/pipeline-of.yml', head_branch: 'main' };
 
 test('atualização autenticada e acompanhamento do pipeline', async t => {
@@ -29,8 +28,8 @@ test('atualização autenticada e acompanhamento do pipeline', async t => {
       json(data) { this.body = data; return this; }, end() { return this; },
     };
     calls.length = 0;
-    await handler({ method, headers: { origin: 'https://oferta-futura.vercel.app' }, body: { senha: 'senha-teste', ...body } }, res);
-    assert.equal(res.headers['Cache-Control'], 'no-store');
+    await handler({ method, headers: { host: 'oferta-futura.vercel.app', origin: 'https://oferta-futura.vercel.app', cookie: `${SESSION_COOKIE}=${'A'.repeat(43)}` }, body: { senha: 'senha-teste', ...body } }, res);
+    assert.match(res.headers['Cache-Control'], /no-store/);
     assert.ok(!JSON.stringify(res.body || {}).includes('token-somente-servidor'));
     return res;
   }

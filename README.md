@@ -8,13 +8,71 @@ Publicado em <https://oferta-futura.vercel.app>. Substitui e evolui o `BI Oferta
 
 ## Como rodar localmente
 
-Site estático, sem build:
+O frontend continua em HTML/JavaScript, com build que publica apenas os arquivos
+públicos. O login e os dados dependem das funções Node da Vercel:
 
 ```bash
-python -m http.server 8123
+npm ci
+npm test
+npm run build
+# Para executar o site com as funções e as variáveis SG configuradas:
+npx vercel dev
 ```
 
-Abrir <http://localhost:8123>. Precisa de internet para as bibliotecas (Leaflet, Chart.js, SheetJS, JSZip, jsPDF) e os tiles do mapa. O chat de IA e a camada "sem previsão" chamam a função `/api/sql` publicada na Vercel — em localhost elas apontam para o domínio de produção.
+Precisa de internet para as bibliotecas (Leaflet, Chart.js, SheetJS, JSZip, jsPDF)
+e os tiles do mapa. As APIs usam sempre a mesma origem e a sessão SG da aba.
+Um servidor de arquivos como `python -m http.server` não fornece autenticação;
+não publique a raiz do repositório dessa forma.
+
+## Controle de acesso SG
+
+Adaptado da skill `sg-integracao-seguranca` para HTML + funções Vercel, conforme
+`references/projetos-nao-next.md`. O identificador deste app é **oferta_futura**.
+O usuário entra com e-mail `@ebm.com.br`, recebe um OTP de seis dígitos pelo Neon
+Auth e só acessa o dashboard se tiver uma autorização ativa no SG.
+
+- `lib/security*.mjs`: núcleo SG, banco e guard Node. Cookie `__Host-ebm-sg-session`
+  em produção, `HttpOnly`, `Secure`, `SameSite=Lax`, token aleatório de 32 bytes e
+  somente hash SHA-256 no banco. Sessões expiradas, revogadas ou com acesso
+  desativado deixam de passar na checagem do servidor.
+- `/api/security/state`, `request-otp`, `verify-otp`, `logout`: fluxo de acesso.
+  A solicitação responde da mesma forma para e-mails corporativos autorizados e
+  não autorizados. O logout revoga a sessão antes de remover o cookie.
+- Todas as rotas de dados usam `requireApiSession(req, res)` como primeira
+  instrução. A senha administrativa continua necessária para editar, importar
+  síntese ou iniciar o pipeline; a sessão não substitui essa senha.
+- `dist/` recebe somente HTML, CSS, JS de interface e logos. `data/**`,
+  `sintese_schema.json`, `fontes/**`, bibliotecas do servidor e documentos internos
+  não são arquivos estáticos públicos. `/data/*` e o schema são encaminhados à
+  API autenticada `api/secure-data.js`, que aceita uma lista restrita de caminhos.
+- O gate carrega os dados apenas após validar a sessão. O navegador verifica a
+  sessão ao voltar à aba e a cada minuto; as APIs verificam em toda requisição.
+  Logout também remove a chave pessoal da IA do armazenamento local.
+- `npm run build` executa `scripts/audit-security.mjs` antes e depois do build.
+  Falta de guard, dados na saída pública ou segredo embutido interrompem o build.
+
+### Ativação no SG e na Vercel
+
+Usar exclusivamente o projeto Neon **SG - Segurança** já administrado pela equipe
+responsável, com o usuário **sg_app**. Este repositório não cria tabelas `sg.*`.
+O administrador deve conferir o esquema/índice existente descrito na skill e
+liberar os e-mails desejados para `oferta_futura`, usando
+`scripts/liberar_acesso.sql` como modelo. Nenhum e-mail é liberado automaticamente.
+
+Definir na Vercel, em Production e Preview: **SG_DATABASE_URL**, **APP_KEY**
+(`oferta_futura`), **CORPORATE_EMAIL_DOMAIN** (`ebm.com.br`), **NEON_AUTH_URL**,
+**APP_ORIGIN** e **SESSION_TTL_HOURS** (padrão 12, máximo 168). Os nomes estão em
+`.env.security.example`; nunca versionar valores reais. Usar a origem correta
+em cada ambiente, cadastrá-la entre as origens confiáveis do Neon Auth e fazer
+redeploy. Sem configuração SG válida, a integração falha fechada.
+
+O limite de tentativas/consumo de OTP depende do Neon Auth; não há um contador
+distribuído adicional neste app. Código público e logos continuam acessíveis,
+mas os dados do dashboard exigem sessão. Dados já baixados por um usuário não
+podem ser recuperados do seu computador após revogação. Para não manter cópias
+antigas públicas, a equipe Vercel também deve proteger ou remover os deployments
+anteriores que serviam dados sem SG. O CSP atual impede uso em iframe; liberar
+um portal em iframe requer ajuste explícito de `frame-ancestors` e dos cookies.
 
 ---
 
@@ -28,6 +86,12 @@ api/sql.js                 função serverless: consulta somente-leitura ao Neon
 api/config.js              função serverless: config compartilhada (textos e mapa importado)
 api/upload-sintese.js      função serverless: substitui sintese_consolidada no Neon
 api/atualizar-portal.js    função serverless: inicia e acompanha o pipeline do Portal
+api/security/[action].js  endpoints SG: estado, OTP, verificação e logout
+api/secure-data.js        dados do dashboard e schema, somente com sessão SG
+lib/security*.mjs         núcleo SG, integração com o banco SG e guard das APIs
+js/security-gate.js       tela de acesso e carregamento autenticado do dashboard
+scripts/build-site.mjs    gera dist com uma lista explícita de arquivos públicos
+scripts/audit-security.mjs auditoria obrigatória do SG no build
 data/dados_of.js           window.OF_DATA   — empreendimentos + tipologias + série mensal
 data/mapa_of.js            window.OF_MAPA   — GeoJSON dos terrenos/pontos do KMZ
 data/bairros_of.js         window.OF_BAIRROS — polígonos dos bairros já coloridos
@@ -131,7 +195,7 @@ a conclusão do cálculo não é confundida com a conclusão do deploy da Vercel
 Se ocorrer falha de rede ou a espera ultrapassar 20 minutos, **Verificar andamento**
 retoma a consulta da execução sem iniciar outra. Falhas do pipeline aparecem no painel.
 
-Verificação da API: `node --test tests/atualizar-portal.test.mjs`.
+Verificação das APIs e do SG: `npm test`.
 Verificação dos parâmetros (com as dependências do pipeline): `python tests/test_parametros_portal.py`.
 
 Auditoria dos dados reais, sem alterar o banco:
@@ -141,6 +205,9 @@ séries mensais, quebras de estoque, mercado, terrenos sem previsão e metadados
 da síntese. O relatório distingue consistência da base de atualização: retorna
 código 1 se houver divergência ou upload da síntese posterior ao recálculo.
 Não acessa diretamente o SQL Server e não comprova a atualização da fonte do Portal.
+Depois da ativação do SG, a auditoria precisa de uma sessão válida: forneça o
+header Cookie em `SG_SESSION_COOKIE` no ambiente do processo. O script não imprime
+esse valor; nunca inclua cookies no repositório, em relatórios ou em mensagens.
 
 ### Guarda de sanidade
 
@@ -453,8 +520,11 @@ O ponto vermelho do gráfico é o **mês de referência** (mês atual), como o `
 - **Nunca commitar chave de API em `js/app.js`** — o arquivo é servido ao navegador. A chave do chat é do usuário e fica só no `localStorage` dele.
 - `/api/sql` aceita apenas `SELECT`/`WITH`, uma instrução por chamada, no máximo 200 linhas, e só responde às origens do próprio site.
 - A senha `123` protege só o painel da chave de API do chat, que fica no navegador de quem clica; não é controle de acesso.
-- `/api/upload-sintese` e `/api/config` são os endpoints de **escrita**, os dois atrás de `SINTESE_UPLOAD_SENHA`. Ficam desligados até a variável existir na Vercel; a senha é conferida no servidor e nunca aparece no JS. Ainda assim são públicos — use senha forte.
-- `/api/config` responde `GET` sem senha: é o mesmo conteúdo que o site já mostra. A escrita aceita só as chaves `textos` e `mapa_kmz` — endpoint público de escrita não pode receber nome de chave arbitrário.
+- `/api/upload-sintese`, `/api/config` e `/api/atualizar-portal` exigem sessão SG e
+  `SINTESE_UPLOAD_SENHA` nas ações de escrita. Sem a senha configurada no servidor,
+  a escrita permanece desativada.
+- `/api/config` responde `GET` somente com sessão SG. A escrita aceita apenas
+  `textos`, `mapa_kmz` e `ia`; chaves de API pessoais não são gravadas nessa tabela.
 
 ## 16. Upload da síntese pelo dashboard
 

@@ -1,6 +1,7 @@
 // Consulta read-only ao Neon para o chat de IA do dashboard.
 // POST {sql: "SELECT ..."} -> {rows: [...], rowCount, truncated}
 import { neon } from '@neondatabase/serverless';
+import { requireApiSession } from '../lib/security-node.mjs';
 
 // Comandos que não podem aparecer numa leitura. Palavras que também são identificadores
 // do schema ficam de fora de propósito: 'cluster' é coluna de projecao_of, e barrá-la
@@ -10,6 +11,7 @@ const MAX_ROWS = 200;
 const ORIGENS = [/^https:\/\/oferta-futura[a-z0-9-]*\.vercel\.app$/, /^http:\/\/localhost(:\d+)?$/];
 
 export default async function handler(req, res) {
+  if (!(await requireApiSession(req, res))) return;
   const origin = req.headers.origin || '';
   if (ORIGENS.some(re => re.test(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);

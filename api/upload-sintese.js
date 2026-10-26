@@ -3,7 +3,7 @@
 // não derruba a tabela viva. O schema vem de sintese_schema.json — o mesmo arquivo
 // que o cliente e o pipeline Python leem.
 //
-// Segurança: endpoint público de ESCRITA. Só funciona se SINTESE_UPLOAD_SENHA existir
+// Segurança: exige sessão SG e senha de ESCRITA. Só funciona se SINTESE_UPLOAD_SENHA existir
 // no ambiente (Vercel). A senha viaja no corpo (HTTPS) e é conferida no servidor —
 // nunca fica no JS do cliente. Sem a variável, o endpoint fica desligado.
 //
@@ -12,9 +12,10 @@
 //   POST {senha, action:'chunk', rows:[[...],…]} -> insere um lote (linhas em ordem de COLS)
 //   POST {senha, action:'commit', arquivo, total}-> troca staging -> viva + grava meta
 import { neon } from '@neondatabase/serverless';
+import { requireApiSession } from '../lib/security-node.mjs';
 // fonte única do schema: sintese_schema.json na raiz (lido também por app.js e pelo
 // pipeline Python). 'n' = nome da coluna, 't' = tipo SQL no Postgres.
-import SCHEMA from '../sintese_schema.json';
+import SCHEMA from '../sintese_schema.json' with { type: 'json' };
 
 const COLS = SCHEMA.map(c => [c.n, c.t]);
 const NCOL = COLS.length;
@@ -30,6 +31,7 @@ function ddlStage() {
 }
 
 export default async function handler(req, res) {
+  if (!(await requireApiSession(req, res))) return;
   const origin = req.headers.origin || '';
   if (ORIGENS.some(re => re.test(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
