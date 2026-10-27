@@ -1,4 +1,6 @@
 fontes/
+!.gitignore
+!.vercelignore
 scripts/*
 !scripts/audit-security.mjs
 !scripts/build-site.mjs
