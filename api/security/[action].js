@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, clearCookieHeader, isCorporateEmail, normalizeEmail, requiredEnv, setCookieHeader } from '../../lib/security.mjs';
 import { createSessionCookieValue, isAuthorizedEmail, revokeSessionToken, sendOtpWithNeon, verifyOtpWithNeon } from '../../lib/security-db.mjs';
-import { readSession, sameOrigin, sessionToken } from '../../lib/security-node.mjs';
+import { publicAccessEnabled, readSession, sameOrigin, sessionToken } from '../../lib/security-node.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -9,6 +9,10 @@ export default async function handler(req, res) {
   if (!['state', 'request-otp', 'verify-otp', 'logout'].includes(action)) return res.status(404).json({ error: 'Não encontrado.' });
   if (req.method !== (action === 'state' ? 'GET' : 'POST')) return res.status(405).json({ error: 'Método não permitido.' });
   if (!sameOrigin(req)) return res.status(403).json({ ok: false, reason: 'invalid_origin' });
+  if (publicAccessEnabled()) {
+    if (action === 'state') return res.status(200).json({ authenticated: false, publicAccess: true, email: null });
+    return res.status(409).json({ ok: false, reason: 'authentication_disabled' });
+  }
   if (action === 'state') {
     const session = await readSession(req);
     return res.status(200).json({ authenticated: Boolean(session), email: session?.email ?? null });

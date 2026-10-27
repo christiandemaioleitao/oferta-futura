@@ -7,6 +7,7 @@ process.env.SG_DATABASE_URL = 'test-only';
 process.env.APP_KEY = 'oferta_futura';
 process.env.APP_ORIGIN = 'https://oferta-futura.vercel.app';
 process.env.NEON_AUTH_URL = 'https://auth.invalid';
+delete process.env.SG_AUTH_DISABLED;
 const token = 'A'.repeat(43);
 let active = true, sent = [], revoked = [], sessions = [], delivery = true;
 mock.module('../lib/security-db.mjs', { namedExports: {
@@ -129,4 +130,41 @@ test('SG: login cria cookie httpOnly e logout revoga a sessão', async () => {
   assert.deepEqual(revoked, [token]);
   assert.match(logout.headers['Set-Cookie'], /Max-Age=0/);
   assert.deepEqual((await call(security, { action: 'state', cookie })).body, { authenticated: false, email: null });
+});
+
+test('acesso público temporário dispensa SG e preserva origem, arquivos e senha de escrita', async () => {
+  const keys = ['SG_AUTH_DISABLED', 'SG_DATABASE_URL', 'NEON_AUTH_URL', 'DATABASE_URL', 'SINTESE_UPLOAD_SENHA', 'GITHUB_ACTIONS_TOKEN'];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  process.env.SG_AUTH_DISABLED = 'true';
+  delete process.env.SG_DATABASE_URL;
+  delete process.env.NEON_AUTH_URL;
+  process.env.DATABASE_URL = 'postgresql://test:test@localhost/test';
+  process.env.SINTESE_UPLOAD_SENHA = 'test-only';
+  process.env.GITHUB_ACTIONS_TOKEN = 'test-only';
+  try {
+    const state = await call(security, { action: 'state' });
+    assert.deepEqual(state.body, { authenticated: false, publicAccess: true, email: null });
+    assert.ok(!state.headers['Set-Cookie']);
+    assert.equal((await call(security, { action: 'request-otp' })).code, 409);
+    const data = protectedHandlers.find(([name]) => name === 'secure-data')[1];
+    assert.equal((await call(data, { method: 'GET', query: { file: 'dados_of.js' } })).code, 200);
+    assert.equal((await call(data, { method: 'GET', query: { file: '../package.json' } })).code, 404);
+    for (const [name, handler] of protectedHandlers) {
+      assert.equal((await call(handler, { origin: 'https://outro.invalid' })).code, 403, name);
+      if (['config', 'upload-sintese', 'atualizar-portal'].includes(name)) {
+        const res = await call(handler, { body: { senha: 'errada' } });
+        assert.equal(res.code, 401, name);
+        assert.equal(res.body.error, 'Senha incorreta.', name);
+      }
+    }
+    const sql = protectedHandlers.find(([name]) => name === 'sql')[1];
+    assert.equal((await call(sql, { body: { sql: 'DROP TABLE teste' } })).code, 400);
+    delete process.env.SG_AUTH_DISABLED;
+    assert.equal((await call(data, { method: 'GET', query: { file: 'dados_of.js' } })).code, 401);
+    assert.deepEqual((await call(security, { action: 'state' })).body, { authenticated: false, email: null });
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+    }
+  }
 });

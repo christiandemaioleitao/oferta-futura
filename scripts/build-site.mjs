@@ -1,4 +1,4 @@
-// Só estes arquivos são públicos. Dados/fontes ficam fora de dist e atrás do SG.
+// Só estes arquivos entram em dist. A API controla o acesso aos dados conforme o modo SG.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,4 +11,4 @@ fs.mkdirSync(output);
 for (const file of ['index.html', 'css', 'js', 'assets']) {
   fs.cpSync(path.join(root, file), path.join(output, file), { recursive: true, dereference: false });
 }
-console.log('Site público gerado em dist; os dados são servidos pela API autenticada.');
+console.log('Site gerado em dist; os dados são servidos pela API com controle de acesso SG.');

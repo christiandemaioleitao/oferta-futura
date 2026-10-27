@@ -26,6 +26,13 @@ não publique a raiz do repositório dessa forma.
 
 ## Controle de acesso SG
 
+**Acesso público temporário (27/10/2026):** por solicitação do responsável,
+`SG_AUTH_DISABLED=true` em Production permite abrir o dashboard e ler seus dados
+sem login, sem depender do banco SG ou do Neon Auth. A senha administrativa das
+ações de escrita e os controles de origem/caminho continuam ativos. Para reativar
+o SG, configurar as credenciais e autorizações abaixo, remover essa variável
+(ou definir `false`) e fazer redeploy. Sem essa opção explícita, o SG é obrigatório.
+
 Adaptado da skill `sg-integracao-seguranca` para HTML + funções Vercel, conforme
 `references/projetos-nao-next.md`. O identificador deste app é **oferta_futura**.
 O usuário entra com e-mail `@ebm.com.br`, recebe um OTP de seis dígitos pelo Neon

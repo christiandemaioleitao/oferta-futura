@@ -26,7 +26,7 @@
   }
   async function state() {
     const session = await api('state');
-    if (!session.authenticated) {
+    if (!session.authenticated && !session.publicAccess) {
       if (loaded) { location.reload(); return; }
       gate.hidden = false; dashboard.hidden = true;
       emailForm.hidden = false; otpForm.hidden = true;
@@ -34,6 +34,7 @@
       return false;
     }
     el('sgSessionEmail').textContent = session.email || '';
+    el('sgLogout').closest('.settings-row').hidden = Boolean(session.publicAccess);
     if (!loaded) {
       el('sgMessage').textContent = 'Carregando dashboard…';
       // A página precisa estar visível para o Leaflet medir o tamanho do mapa.
