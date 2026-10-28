@@ -459,6 +459,7 @@ function initMap() {
   const chkBairros = $('#lyrBairros');
   if (chkBairros) chkBairros.onchange = e => e.target.checked ? map.addLayer(bairroLayer) : map.removeLayer(bairroLayer);
   initCadastroGyn();
+  initMapTools();
   // busca por quadra/lote: filtra os terrenos KMZ (nome do terreno ou empreendimento vinculado)
   // e dispara a consulta ao cadastro oficial da Prefeitura (GYN_CADASTRO.buscar, adiante)
   $('#loteSearch')?.addEventListener('input', e => {
@@ -588,6 +589,7 @@ const GYN_CADASTRO = {
   base: 'https://portalmapa.goiania.go.gov.br/servicogyn/rest/services/MapaServer/Mapa_Basico3/MapServer/',
   camada: { quadra: 266, lote: 265 },
   campo: { quadra: 'nm_qdr', lote: 'nm_lot' },
+  loteFields: 'OBJECTID,id,nm_lot,id_qdr,shape.STArea()',
   zoomMin: { quadra: 14, lote: 16 },
   limite: 3000,        // teto de polígonos por recorte — acima disso, aproximar o zoom
   buscaLimite: 400,    // teto de resultados da busca por atributo
@@ -600,14 +602,137 @@ function gynQuery(tipo, extra, slot) {
   const chave = slot || tipo;   // viewport e busca abortam em canais separados
   // f=json (esri): o serviço falha (400) com f=geojson acima de ~850 features
   // com filtro espacial; em json aguenta 1000 e expõe exceededTransferLimit.
-  const p = new URLSearchParams({ f: 'json', outFields: GYN_CADASTRO.campo[tipo], returnGeometry: 'true', outSR: 4326, ...extra });
+  const p = new URLSearchParams({ f: 'json', outFields: tipo === 'lote' ? GYN_CADASTRO.loteFields : GYN_CADASTRO.campo[tipo], returnGeometry: 'true', outSR: 4326, ...extra });
   if (gynAbort[chave]) gynAbort[chave].abort();
   gynAbort[chave] = new AbortController();
   return fetch(`${GYN_CADASTRO.base}${GYN_CADASTRO.camada[tipo]}/query?${p}`, { signal: gynAbort[chave].signal })
-    .then(r => { if (!r.ok) throw new Error('serviço da Prefeitura respondeu ' + r.status); return r.json(); });
+    .then(r => { if (!r.ok) throw new Error('serviço da Prefeitura respondeu ' + r.status); return r.json(); })
+    .then(data => { if (data.error) throw new Error(data.error.message || 'consulta recusada pela Prefeitura'); return data; });
 }
-/* polígono esri -> latlngs do Leaflet (anel externo; rings[1+] são buracos) */
-const gynRings = f => (f.geometry && f.geometry.rings ? f.geometry.rings[0].map(c => [c[1], c[0]]) : null);
+/* Mantém todos os anéis do cadastro, inclusive buracos e partes separadas. */
+const gynRings = f => f.geometry?.rings?.length ? f.geometry.rings.map(ring => ring.map(c => [c[1], c[0]])) : null;
+
+const mapSelectedLots = new Map();
+let mapSelectionLayer, mapRulerLayer, mapRulerActive = false, mapRulerPoints = [];
+const gynLoteKey = f => f.attributes?.OBJECTID ?? f.attributes?.id ?? null;
+function gynLoteArea(f) {
+  const area = f.attributes?.['shape.STArea()'];
+  return typeof area === 'number' && Number.isFinite(area) && area >= 0 ? area : null;
+}
+function selectedLotsArea(lots) {
+  const areas = [...lots.values()].map(gynLoteArea);
+  return areas.some(area => area === null) ? null : areas.reduce((sum, area) => sum + area, 0);
+}
+function rulerLength(points) {
+  return points.slice(1).reduce((sum, point, i) => sum + map.distance(points[i], point), 0);
+}
+const formatMapLength = metres => `${fmtDec(metres >= 1000 ? metres / 1000 : metres, 2)} ${metres >= 1000 ? 'km' : 'm'}`;
+
+function renderMapTools() {
+  const output = $('#mapMeasureValue');
+  if (mapSelectedLots.size) {
+    const area = selectedLotsArea(mapSelectedLots);
+    const count = mapSelectedLots.size;
+    output.textContent = `${count} ${count === 1 ? 'lote selecionado' : 'lotes selecionados'} · ${area === null ? 'Área total indisponível' : fmtDec(area, 2) + ' m²'}`;
+  } else if (mapRulerPoints.length) {
+    output.textContent = `Distância total · ${formatMapLength(rulerLength(mapRulerPoints))}`;
+  } else output.textContent = mapRulerActive ? 'Régua · clique no primeiro ponto.' : 'Nenhum lote selecionado.';
+  $('#mapRuler').setAttribute('aria-pressed', String(mapRulerActive));
+  $('#mapMeasureClear').disabled = !mapSelectedLots.size && !mapRulerPoints.length && !mapRulerActive;
+  $('#mapMeasureHint').textContent = mapRulerActive
+    ? 'Clique nos pontos do percurso. Duplo clique conclui; Esc ou Limpar apaga a medição. Distância em linha no mapa.'
+    : mapRulerPoints.length ? 'Medição concluída. Use Régua para começar outra ou Limpar para apagar.'
+    : 'Clique em um lote; Ctrl + clique adiciona ou remove. Clique fora do mapa ou pressione uma tecla para desmarcar. Área geométrica do cadastro da Prefeitura.';
+  map.getContainer().classList.toggle('map--measuring', mapRulerActive);
+}
+function clearSelectedLots() {
+  mapSelectedLots.clear();
+  mapSelectionLayer.clearLayers();
+  renderMapTools();
+}
+function clearMapTools() {
+  mapRulerActive = false;
+  mapRulerPoints = [];
+  mapRulerLayer.clearLayers();
+  clearSelectedLots();
+}
+function selectCadastroLot(feature, event = {}) {
+  if (mapRulerActive) return;
+  const key = gynLoteKey(feature);
+  if (key === null) return;
+  mapRulerPoints = [];
+  mapRulerLayer.clearLayers();
+  if (!(event.ctrlKey || event.metaKey)) mapSelectedLots.clear();
+  if (mapSelectedLots.has(key)) mapSelectedLots.delete(key);
+  else mapSelectedLots.set(key, feature);
+  mapSelectionLayer.clearLayers();
+  mapSelectedLots.forEach(f => L.polygon(gynRings(f), {
+    pane: 'mapTools', interactive: false, color: RED, weight: 3, dashArray: '5 3', fillColor: RED, fillOpacity: .28,
+  }).addTo(mapSelectionLayer));
+  map.closePopup();
+  renderMapTools();
+}
+function gynPolygon(feature, tipo, style) {
+  const polygon = L.polygon(gynRings(feature), {
+    ...style, ...(tipo === 'lote' ? { pane: 'gynLotes', className: 'gyn-lot', bubblingMouseEvents: false } : {}),
+  });
+  if (tipo === 'lote') polygon.on('click', event => selectCadastroLot(feature, event.originalEvent));
+  return polygon;
+}
+function addRulerPoint(point) {
+  mapRulerPoints.push(point);
+  mapRulerLayer.clearLayers();
+  L.polyline(mapRulerPoints, { pane: 'mapTools', interactive: false, color: RED, weight: 3 }).addTo(mapRulerLayer);
+  mapRulerPoints.forEach((p, i) => {
+    const marker = L.circleMarker(p, { pane: 'mapTools', interactive: false, radius: 4, color: RED, weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(mapRulerLayer);
+    if (i === mapRulerPoints.length - 1) marker.bindTooltip(formatMapLength(rulerLength(mapRulerPoints)), { permanent: true, direction: 'top', className: 'map-measure-tip' });
+  });
+  renderMapTools();
+}
+function initMapTools() {
+  map.createPane('mapTools');
+  map.getPane('mapTools').style.zIndex = 450;
+  map.getPane('mapTools').style.pointerEvents = 'none';
+  mapSelectionLayer = L.layerGroup().addTo(map);
+  mapRulerLayer = L.layerGroup().addTo(map);
+  const container = map.getContainer(), toolbar = $('#mapTools');
+  $('#mapSelectLots').onclick = () => {
+    clearMapTools();
+    if (map.getZoom() < GYN_CADASTRO.zoomMin.lote) map.setZoom(GYN_CADASTRO.zoomMin.lote);
+    clearTimeout(gynTimer.lote);
+    const checkbox = $('#lyrLotes');
+    if (!checkbox.checked) { checkbox.checked = true; checkbox.dispatchEvent(new Event('change')); }
+    else gynCarregarViewport('lote', loteLayer);
+  };
+  $('#mapRuler').onclick = () => {
+    if (mapRulerActive) { mapRulerActive = false; renderMapTools(); }
+    else { clearMapTools(); map.closePopup(); mapRulerActive = true; renderMapTools(); }
+  };
+  $('#mapMeasureClear').onclick = clearMapTools;
+  let pointerStart = null;
+  container.addEventListener('pointerdown', event => { pointerStart = [event.clientX, event.clientY]; }, true);
+  container.addEventListener('click', event => {
+    if (!mapRulerActive || event.target.closest('.leaflet-control')) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (event.detail > 1 || (pointerStart && Math.hypot(event.clientX - pointerStart[0], event.clientY - pointerStart[1]) > 5)) return;
+    addRulerPoint(map.mouseEventToLatLng(event));
+  }, true);
+  container.addEventListener('dblclick', event => {
+    if (!mapRulerActive || event.target.closest('.leaflet-control')) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    mapRulerActive = false;
+    renderMapTools();
+  }, true);
+  map.on('click', () => { if (!mapRulerActive) clearMapTools(); });
+  document.addEventListener('click', event => {
+    if (!container.contains(event.target) && !toolbar.contains(event.target)) clearMapTools();
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') clearMapTools();
+    else if (!['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) clearSelectedLots();
+  });
+  renderMapTools();
+}
 
 const gynStatus = msg => { const el = $('#importStatus'); if (el && msg) el.textContent = msg; };
 
@@ -643,7 +768,7 @@ function gynCarregarViewport(tipo, layer) {
         : { pane: 'gynCadastro', color: '#566076', weight: .8, fillColor: '#566076', fillOpacity: .06 };
       /* número pequeno no centro de cada quadra/lote; interactive:false para o
          rótulo não roubar o clique do polígono */
-      L.polygon(latlngs, estilo)
+      gynPolygon(f, tipo, estilo)
         .bindTooltip(tipo === 'quadra' ? `QD ${nome}` : `LT ${nome}`,
           { permanent: true, direction: 'center', className: 'gyn-label', interactive: false })
         .addTo(layer);
@@ -654,13 +779,13 @@ function gynCarregarViewport(tipo, layer) {
 }
 
 /* destaque de busca: desenha fora dos toggles (fica visível mesmo com a camada desligada) */
-function gynMostrarResultado(feats, rotulos, extraPts, hint) {
+function gynMostrarResultado(feats, rotulos, extraPts, hint, tipo = 'quadra') {
   if (!gynResultadoLayer) return;
   gynResultadoLayer.clearLayers();
   feats.forEach((f, i) => {
     const latlngs = gynRings(f);
     if (!latlngs) return;
-    L.polygon(latlngs, { pane: 'gynCadastro', color: RED, weight: 2, fillColor: RED, fillOpacity: .12 })
+    gynPolygon(f, tipo, { pane: 'gynCadastro', color: RED, weight: 2, fillColor: RED, fillOpacity: .12 })
       .bindTooltip(rotulos[i], { permanent: true, direction: 'center', className: 'lote-tip' })
       .addTo(gynResultadoLayer);
   });
@@ -691,7 +816,7 @@ function gynBuscar(texto, kmzPts) {
       : Promise.resolve(null);
     passoQuadras.then(ids => {
       const ondeLote = `nm_lot='${alvoLt}'` + (ids && ids.length ? ` AND id_qdr IN (${ids.join(',')})` : '');
-      return gynQuery('lote', { where: ondeLote, outFields: 'nm_lot', resultRecordCount: GYN_CADASTRO.buscaLimite }, 'busca')
+      return gynQuery('lote', { where: ondeLote, outFields: GYN_CADASTRO.loteFields, resultRecordCount: GYN_CADASTRO.buscaLimite }, 'busca')
         .then(fc => {
           const feats = (fc.features || []).filter(f => gynRings(f));
           const rotulo = alvoQd != null ? `QD ${alvoQd} · LT ${alvoLt}` : `LT ${alvoLt}`;
@@ -699,7 +824,7 @@ function gynBuscar(texto, kmzPts) {
           const cortado = feats.length >= GYN_CADASTRO.buscaLimite;
           gynMostrarResultado(feats, feats.map(() => rotulo), kmzPts,
             `${fmtInt(feats.length)} ${alvoQd != null ? 'LOTE(S) NA QUADRA ' + alvoQd : 'LOTES "' + alvoLt + '"'}`
-            + (cortado ? ' — REFINE COM A QUADRA (EX.: QD 65 LT 12)' : ''));
+            + (cortado ? ' — REFINE COM A QUADRA (EX.: QD 65 LT 12)' : ''), 'lote');
         });
     }).catch(err => { if (err.name !== 'AbortError') { console.warn(err); gynStatus('BUSCA NO CADASTRO FALHOU: ' + (err.message || err)); } });
   } else if (buscarQuadras) {
@@ -719,12 +844,14 @@ function gynBuscar(texto, kmzPts) {
 function initCadastroGyn() {
   map.createPane('gynCadastro');
   map.getPane('gynCadastro').style.zIndex = 375;   // abaixo dos bairros (380) e dos marcadores (400)
+  map.createPane('gynLotes');
+  map.getPane('gynLotes').style.zIndex = 410; // permite clicar nos lotes mesmo sob terrenos KMZ
   quadraLayer = L.layerGroup();
   loteLayer = L.layerGroup();
   gynResultadoLayer = L.layerGroup().addTo(map);
   const ligar = (tipo, layer) => e => {
     if (e.target.checked) { map.addLayer(layer); gynCarregarViewport(tipo, layer); }
-    else { gynAbort[tipo]?.abort(); map.removeLayer(layer); }
+    else { gynAbort[tipo]?.abort(); map.removeLayer(layer); if (tipo === 'lote') clearSelectedLots(); }
   };
   $('#lyrQuadras').onchange = ligar('quadra', quadraLayer);
   $('#lyrLotes').onchange = ligar('lote', loteLayer);

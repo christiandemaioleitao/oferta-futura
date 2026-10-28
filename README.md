@@ -645,3 +645,21 @@ a 1ª. O `system prompt` explica a regra ao modelo, senão ele pede esclarecimen
 vez de usar o histórico que já recebeu.
 
 A memória vive na aba: recarregar a página começa conversa nova.
+
+## 18. Áreas de lotes e régua no mapa
+
+**Selecionar lotes** ativa o cadastro de lotes de Goiânia e aproxima o mapa ao nível
+necessário. Clique em um lote para destacar e ver sua área; Ctrl + clique (ou
+Command no Mac) adiciona ou remove lotes e atualiza a soma em m². Um clique comum
+substitui a seleção. Clique fora do mapa, pressione uma tecla ou use **Limpar**
+para desmarcar. As teclas modificadoras preservam a seleção para permitir a soma.
+
+A área vem de `shape.STArea()` da camada 265 do cadastro municipal, em m² na
+projeção SIRGAS 2000 / UTM 22S. As parcelas são somadas antes do arredondamento.
+Se algum lote não fornecer uma área válida, o total aparece como indisponível.
+
+**Régua** inicia uma medição: clique nos pontos do percurso e dê duplo clique no
+último para concluir. O resultado soma as distâncias em linha entre os pontos,
+calculadas pelo Leaflet em metros (ou km a partir de 1.000 m). Esc ou **Limpar**
+apaga; clicar novamente em **Régua** inicia outro percurso. A régua funciona em
+qualquer local do mapa; a seleção depende da cobertura do cadastro de Goiânia.

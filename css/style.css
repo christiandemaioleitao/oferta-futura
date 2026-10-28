@@ -132,6 +132,15 @@ button{font-family:inherit}
 
 /* mapa */
 #map{height:520px;border-radius:10px;border:1px solid var(--hair);background:var(--paper-2)}
+.map-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px;margin-bottom:10px;background:var(--paper);border:1px solid var(--hair);border-radius:10px}
+.map-tools__actions{display:flex;flex-wrap:wrap;gap:8px}
+.map-tools__actions .btn{font-size:11px;padding:7px 10px}
+.map-tools__actions [aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.map-tools__actions :disabled{opacity:.45;cursor:default}
+.map-tools__value{font-size:12px;font-weight:600;color:var(--navy);overflow-wrap:anywhere}
+.map-tools small{flex-basis:100%;font-size:11px;line-height:1.5;color:var(--gray-600)}
+#map.map--measuring,#map.map--measuring .leaflet-interactive{cursor:crosshair}
+.map-measure-tip{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--navy);background:#fff;border:1px solid var(--red);border-radius:6px;padding:4px 8px}
 .map-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;letter-spacing:.08em;color:var(--gray-600)}
 .map-legend label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .map-legend input{accent-color:var(--red)}
@@ -320,7 +329,8 @@ tr:hover .rt-name{color:var(--red)}
 @media(max-width:640px){.settings-dock{left:16px;bottom:16px}.settings-panel{bottom:68px}}
 
 /* ---------- chat IA (leadsebm) ---------- */
-.ai-chat{position:fixed;right:24px;bottom:24px;z-index:1400;display:flex;align-items:flex-end;gap:12px}
+.ai-chat{position:fixed;right:24px;bottom:24px;z-index:1400;display:flex;align-items:flex-end;gap:12px;pointer-events:none}
+.chat-toggle{pointer-events:auto}
 .chat-composer{position:relative;width:min(560px,calc(100vw - 112px));padding:2px;border-radius:999px;overflow:hidden;opacity:0;transform:translateX(14px) scale(.96);pointer-events:none;transition:opacity .32s ease,transform .32s ease}
 .ai-chat.is-open .chat-composer{opacity:1;transform:translateX(0) scale(1);pointer-events:auto}
 .chat-composer::before{content:"";position:absolute;inset:-120%;background:conic-gradient(from 0deg,transparent 0deg,transparent 42deg,rgba(174,191,222,.95) 86deg,rgba(227,10,18,.88) 128deg,rgba(12,31,85,.95) 178deg,rgba(174,191,222,.98) 226deg,transparent 286deg,transparent 360deg);filter:blur(10px);opacity:0;animation:auroraFlow 5.2s linear infinite;transition:opacity .32s ease}
