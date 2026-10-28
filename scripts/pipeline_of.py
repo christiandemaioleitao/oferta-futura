@@ -62,6 +62,8 @@ COLUNAS_ORDEM_FINAL_OF = [
 # Query que reproduz o export empreendimentos_OF.xlsx:
 # tipologias ativas de cadastros ativos nas cidades da regional GO
 # (Goiânia, Aparecida de Goiânia, Senador Canedo). tipologia = PerfilTipologia.
+# O Portal removeu os três flags ProjetoProtocolado/Outros e ProjetoAprovado.
+# Mantemos NULL nos aliases legados; datas e IDs continuam vindo do cadastro.
 SQL_EMPREENDIMENTOS = """
 SELECT
     c.Nome                    AS [Cidade.Nome],
@@ -91,9 +93,9 @@ SELECT
     ec.DadosExtras            AS DadosExtras,
     ec.Complemento            AS Complemento,
     ec.TerrenoTapumado        AS TerrenoTapumado,
-    ec.ProjetoProtocolado     AS ProjetoProtocolado,
-    ec.ProjetoProtocoladoOutros AS ProjetoProtocoladoOutros,
-    ec.ProjetoAprovado        AS ProjetoAprovado,
+    CAST(NULL AS bit)         AS ProjetoProtocolado,
+    CAST(NULL AS bit)         AS ProjetoProtocoladoOutros,
+    CAST(NULL AS bit)         AS ProjetoAprovado,
     ec.IdProtocoloProjeto     AS IdProtocoloProjeto,
     ec.IdProtocoloProjetoOutros AS IdProtocoloProjetoOutros,
     ec.DataProtocoloProjeto   AS DataProtocoloProjeto,
@@ -346,8 +348,8 @@ SELECT
     ec.AreaTerreno        AS area_terreno,
     ec.TotalUnidades      AS total_unidades,
     ec.Observacao         AS observacao,
-    ec.ProjetoProtocolado AS projeto_protocolado,
-    ec.ProjetoAprovado    AS projeto_aprovado,
+    CAST(NULL AS bit)     AS projeto_protocolado,
+    CAST(NULL AS bit)     AS projeto_aprovado,
     ec.IdProtocoloProjeto AS id_protocolo,
     ec.DataProtocoloProjeto AS data_protocolo,
     ec.DataAprovacao      AS data_aprovacao,
