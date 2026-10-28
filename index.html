@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261028-medidas" />
+<link rel="stylesheet" href="css/style.css?v=20261028-kmz-selecao" />
 </head>
 <body>
 <main class="sg-gate" id="sgGate">
@@ -143,6 +143,10 @@
           <button type="button" id="mapSelectLots" class="btn btn-soft">Selecionar lotes</button>
           <button type="button" id="mapRuler" class="btn btn-soft" aria-pressed="false">Régua</button>
           <button type="button" id="mapMeasureClear" class="btn btn-soft" disabled>Limpar</button>
+          <button type="button" id="mapExportLots" class="btn btn-soft map-tools__download" title="Baixar KMZ das áreas selecionadas" aria-label="Baixar KMZ das áreas selecionadas" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>KMZ</span>
+          </button>
         </div>
         <output id="mapMeasureValue" class="map-tools__value mono" aria-live="polite">Nenhum lote selecionado.</output>
         <small id="mapMeasureHint">Clique em um lote; Ctrl + clique adiciona ou remove. Clique fora do mapa ou pressione uma tecla para desmarcar.</small>
@@ -406,9 +410,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="js/vendor/polygon-clipping-0.15.7.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script type="text/plain" data-sg-src="js/app.js?v=20261028-medidas"></script>
+<script type="text/plain" data-sg-src="js/app.js?v=20261028-kmz-selecao"></script>
 <script src="js/security-gate.js?v=20261028-1508"></script>
 </body>
 </html>

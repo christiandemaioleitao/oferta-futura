@@ -663,3 +663,13 @@ Se algum lote não fornecer uma área válida, o total aparece como indisponíve
 calculadas pelo Leaflet em metros (ou km a partir de 1.000 m). Esc ou **Limpar**
 apaga; clicar novamente em **Régua** inicia outro percurso. A régua funciona em
 qualquer local do mapa; a seleção depende da cobertura do cadastro de Goiânia.
+
+O botão compacto **↓ KMZ**, ao lado de Limpar, baixa apenas os lotes selecionados,
+em um único arquivo. A união geométrica remove as divisórias entre lotes contíguos;
+cada área separada gera um `Placemark`, mantendo os recortes internos. O arquivo
+contém `doc.kml`, com coordenadas geográficas do cadastro. A operação é local no
+navegador, sem nova consulta ou envio dos lotes a outro serviço.
+
+A união usa polygon-clipping 0.15.7 (MIT), distribuído em `js/vendor/` com sua
+licença. O XOR dos anéis de cada lote preserva a regra par/ímpar do ArcGIS; a união
+dos lotes produz os contornos finais. O JSZip já usado pelo site compacta o KMZ.

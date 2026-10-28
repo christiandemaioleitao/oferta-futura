@@ -614,6 +614,7 @@ const gynRings = f => f.geometry?.rings?.length ? f.geometry.rings.map(ring => r
 
 const mapSelectedLots = new Map();
 let mapSelectionLayer, mapRulerLayer, mapRulerActive = false, mapRulerPoints = [];
+let mapKmzExporting = false;
 const gynLoteKey = f => f.attributes?.OBJECTID ?? f.attributes?.id ?? null;
 function gynLoteArea(f) {
   const area = f.attributes?.['shape.STArea()'];
@@ -639,6 +640,8 @@ function renderMapTools() {
   } else output.textContent = mapRulerActive ? 'Régua · clique no primeiro ponto.' : 'Nenhum lote selecionado.';
   $('#mapRuler').setAttribute('aria-pressed', String(mapRulerActive));
   $('#mapMeasureClear').disabled = !mapSelectedLots.size && !mapRulerPoints.length && !mapRulerActive;
+  $('#mapExportLots').disabled = !mapSelectedLots.size || mapKmzExporting;
+  $('#mapExportLots').setAttribute('aria-busy', String(mapKmzExporting));
   $('#mapMeasureHint').textContent = mapRulerActive
     ? 'Clique nos pontos do percurso. Duplo clique conclui; Esc ou Limpar apaga a medição. Distância em linha no mapa.'
     : mapRulerPoints.length ? 'Medição concluída. Use Régua para começar outra ou Limpar para apagar.'
@@ -709,6 +712,7 @@ function initMapTools() {
     else { clearMapTools(); map.closePopup(); mapRulerActive = true; renderMapTools(); }
   };
   $('#mapMeasureClear').onclick = clearMapTools;
+  $('#mapExportLots').onclick = exportSelectedLotsKmz;
   let pointerStart = null;
   container.addEventListener('pointerdown', event => { pointerStart = [event.clientX, event.clientY]; }, true);
   container.addEventListener('click', event => {
@@ -2203,6 +2207,63 @@ function hexToKml(hex, alpha) { // #rrggbb -> aabbggrr
   return alpha + h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2);
 }
 const xmlEsc = escapeHtml;   // &#39; vale em XML como &apos;
+/* União real dos lotes, preservando recortes internos e partes separadas.
+   XOR dos anéis aplica a regra par/ímpar do ArcGIS, independente da orientação. */
+function selectedLotsGeometry(features) {
+  const geometries = features.map(feature => {
+    const rings = feature.geometry?.rings;
+    if (!rings?.length || rings.some(ring => ring.length < 4 || ring.some(c =>
+      !Number.isFinite(c[0]) || !Number.isFinite(c[1]) || Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90))) {
+      throw new Error('Um dos lotes está sem geometria válida. Selecione os lotes novamente.');
+    }
+    return polygonClipping.xor(...rings.map(ring => [ring.map(c => [c[0], c[1]])]));
+  });
+  if (!geometries.length) throw new Error('Selecione pelo menos um lote.');
+  const polygons = polygonClipping.union(...geometries);
+  if (!polygons.length) throw new Error('Não foi possível gerar a área selecionada.');
+  return polygons;
+}
+function selectedLotsKml(features) {
+  const polygons = selectedLotsGeometry(features);
+  const lots = features.map(f => f.attributes?.nm_lot || f.attributes?.id || f.attributes?.OBJECTID).join(', ');
+  const placemarks = polygons.map((rings, i) => `<Placemark><name>Área ${i + 1}</name><styleUrl>#selecao</styleUrl><Polygon><tessellate>1</tessellate>${rings.map((ring, j) => {
+    const boundary = j === 0 ? 'outerBoundaryIs' : 'innerBoundaryIs';
+    return `<${boundary}><LinearRing><coordinates>${ring.map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LinearRing></${boundary}>`;
+  }).join('')}</Polygon></Placemark>`).join('\n');
+  return { count: polygons.length, kml: `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Oferta Futura — áreas selecionadas</name>
+<description>${xmlEsc(`${features.length} lote(s) selecionado(s). Lotes: ${lots}. Fonte: cadastro da Prefeitura de Goiânia.`)}</description>
+<Style id="selecao"><LineStyle><color>ff120ae3</color><width>2</width></LineStyle><PolyStyle><color>66120ae3</color></PolyStyle></Style>
+${placemarks}</Document></kml>` };
+}
+async function downloadKmz(kml, filename) {
+  const zip = new JSZip();
+  zip.file('doc.kml', kml);
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.google-earth.kmz', compression: 'DEFLATE' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+async function exportSelectedLotsKmz() {
+  if (!mapSelectedLots.size || mapKmzExporting) return;
+  const features = [...mapSelectedLots.values()];
+  mapKmzExporting = true;
+  renderMapTools();
+  try {
+    const { kml, count } = selectedLotsKml(features);
+    await downloadKmz(kml, `Oferta_Futura_Selecao_${new Date().toISOString().slice(0, 10)}.kmz`);
+    $('#mapMeasureHint').textContent = `KMZ baixado · ${count} ${count === 1 ? 'área' : 'áreas'}. Lotes contíguos unidos no mesmo contorno.`;
+  } catch (err) {
+    console.warn('Falha ao exportar seleção KMZ:', err);
+    $('#mapMeasureHint').textContent = 'Não foi possível baixar o KMZ. Tente novamente ou refaça a seleção.';
+  } finally {
+    mapKmzExporting = false;
+    $('#mapExportLots').disabled = !mapSelectedLots.size;
+    $('#mapExportLots').setAttribute('aria-busy', 'false');
+  }
+}
 async function exportKmz() {
   const st = $('#importStatus');
   const feats = visibleKmzFeatures();
@@ -2235,14 +2296,7 @@ async function exportKmz() {
 <Folder><name>Terrenos</name>${pmPoly.join('\n')}</Folder>
 <Folder><name>Localizações</name>${pmPoint.join('\n')}</Folder>
 </Document></kml>`;
-  const zip = new JSZip();
-  zip.file('doc.kml', kml);
-  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `Oferta_Futura_Mapa_${new Date().toISOString().slice(0, 10)}.kmz`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  await downloadKmz(kml, `Oferta_Futura_Mapa_${new Date().toISOString().slice(0, 10)}.kmz`);
   if (st) st.textContent = `KMZ EXPORTADO · ${pmEmp.length} EMPREENDIMENTOS · ${pmPoly.length} TERRENOS · ${pmPoint.length} LOCALIZAÇÕES`;
 }
 $('#btnExportKmz').onclick = exportKmz;
