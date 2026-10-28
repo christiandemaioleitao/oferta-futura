@@ -232,7 +232,7 @@ tr:hover .rt-name{color:var(--red)}
 .reddot{width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block;flex:none}
 .ficha__name{position:relative;font-family:var(--font-display);font-weight:800;font-size:clamp(20px,3vw,28px);letter-spacing:.01em;text-transform:uppercase;margin-top:8px}
 .ficha__loc{position:relative;font-size:13px;color:#DCE2EC;margin-top:4px}
-.ficha__badges{position:absolute;right:24px;bottom:18px;display:flex;gap:8px}
+.ficha__badges{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .badge{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;padding:5px 12px;border-radius:7px;font-weight:600}
 .badge--red{background:var(--red);color:#fff}
 .badge--outline{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.4);color:#fff}

@@ -24,6 +24,19 @@ e os tiles do mapa. As APIs usam sempre a mesma origem e a sessão SG da aba.
 Um servidor de arquivos como `python -m http.server` não fornece autenticação;
 não publique a raiz do repositório dessa forma.
 
+## Tags dos cards de empreendimento
+
+O cabeçalho da ficha mostra uma tag de estágio, determinada pelas datas do Portal,
+também para terrenos sem previsão de lançamento. A prioridade é:
+
+1. Data de aprovação preenchida: **Projeto Aprovado**.
+2. Sem aprovação, com data de protocolo: **Projeto Protocolado**.
+3. Sem as duas anteriores, com data de remembramento/desmembramento: **Remembrado**.
+4. Sem as anteriores, com data de protocolo — outros: **Alvará de demolição**.
+
+Sem essas datas, nenhuma tag de estágio é exibida. A tag de lançamento existente
+continua independente. Os flags antigos de projeto não determinam essas tags.
+
 ## Controle de acesso SG
 
 **Acesso público temporário (27/10/2026):** por solicitação do responsável,

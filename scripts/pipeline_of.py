@@ -54,7 +54,7 @@ COLUNAS_ORDEM_FINAL_OF = [
     'Complemento', 'TerrenoTapumado', 'ProjetoProtocolado', 'ProjetoProtocoladoOutros',
     'ProjetoAprovado', 'IdProtocoloProjeto', 'IdProtocoloProjetoOutros',
     'DataProtocoloProjeto', 'DataProtocoloProjetoOutros', 'LinkDoProjeto',
-    'IPTU', 'DataAprovacao', 'FonteEmpreendimento', 'FonteDataLancamento',
+    'IPTU', 'DataAprovacao', 'DataRemembramentoDesmembramento', 'FonteEmpreendimento', 'FonteDataLancamento',
     'FonteTipologia', 'FonteDataPrevisaoLancamento', 'Cidade.Uf', 'Cidade.Regional',
     'Consorcio.Id', 'tipologia', 'consideracao_OF', 'cluster', 'LinkPortal',
 ]
@@ -103,6 +103,7 @@ SELECT
     ec.LinkDoProjeto          AS LinkDoProjeto,
     ec.IPTU                   AS IPTU,
     ec.DataAprovacao          AS DataAprovacao,
+    ec.DataRemembramentoDesmembramento AS DataRemembramentoDesmembramento,
     ec.FonteEmpreendimento    AS FonteEmpreendimento,
     ec.FonteDataLancamento    AS FonteDataLancamento,
     -- a tela de edição do portal grava a fonte no CADASTRO; a cópia por tipologia
@@ -289,7 +290,7 @@ def ajustar_contexto_sintese(df):
 
 # colunas de data que trafegam como texto (vêm assim do cadastro e são exibidas na ficha)
 COLS_DATA_TEXTO = ['DataProtocoloProjeto', 'DataProtocoloProjetoOutros',
-                   'DataAprovacao', 'datainobr', 'datahabt']
+                   'DataAprovacao', 'DataRemembramentoDesmembramento', 'datainobr', 'datahabt']
 # marcadores de vazio das várias origens (SQL Server, Excel, síntese)
 VAZIOS = {'', '-', 'nan', 'NaN', 'None', 'NaT'}
 # colunas em que o cadastro grava literalmente 0 no lugar de "não informado".
@@ -352,7 +353,9 @@ SELECT
     CAST(NULL AS bit)     AS projeto_aprovado,
     ec.IdProtocoloProjeto AS id_protocolo,
     ec.DataProtocoloProjeto AS data_protocolo,
+    ec.DataProtocoloProjetoOutros AS data_protocolo_outros,
     ec.DataAprovacao      AS data_aprovacao,
+    ec.DataRemembramentoDesmembramento AS data_remembramento,
     ec.LinkDoProjeto      AS link_projeto,
     ec.FonteEmpreendimento AS fonte_empreendimento
 FROM dbo.EmpreendimentoCadastro ec

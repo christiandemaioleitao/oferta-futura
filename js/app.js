@@ -327,6 +327,8 @@ async function loadSemDataEmps() {
     logradouro: x.logradouro, complemento: x.complemento,
     areaTerreno: numOrNull(x.area_terreno), totalUnidades: numOrNull(x.total_unidades),
     observacao: x.observacao, linkPortal: x.link_portal,
+    dataProtocolo: x.data_protocolo, dataAprovacao: x.data_aprovacao,
+    dataProtocoloOutros: x.data_protocolo_outros, dataRemembramento: x.data_remembramento,
     projetoProtocolado: String(x.projeto_protocolado) === 'true' || String(x.projeto_protocolado) === 'True',
     projetoAprovado: String(x.projeto_aprovado) === 'true' || String(x.projeto_aprovado) === 'True',
     fonteEmpreendimento: x.fonte_empreendimento, dtLancamento: null, tipologias: [], mensal: [], semData: true,
@@ -1428,6 +1430,14 @@ $$('#semPrevTable th[data-sort]').forEach(th => th.onclick = () => {
 });
 
 /* ---------- ficha (tooltip redesign) ---------- */
+function tagsProjeto(e) {
+  if (e.dataAprovacao) return ['Projeto Aprovado'];
+  if (e.dataProtocolo) return ['Projeto Protocolado'];
+  if (e.dataRemembramento) return ['Remembrado'];
+  if (e.dataProtocoloOutros) return ['Alvará de demolição'];
+  return [];
+}
+
 function elapsedLabel(from, to) {
   if (!from) return null;
   const a = new Date(from.slice(0, 10)), b = to ? new Date(to.slice(0, 10)) : new Date();
@@ -1444,7 +1454,7 @@ function fillFicha(e) {
   $('#fLoc').textContent = [e.bairro, [e.cidade, e.uf].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
   const lanc = statusEmp(e) === 'LANÇADO';
   $('#fBadges').innerHTML = (lanc ? '<span class="badge badge--red">LANÇADO</span>' : e.semData ? '<span class="badge badge--red" style="background:#8A93A6">SEM PREVISÃO</span>' : '<span class="badge badge--red" style="background:var(--navy-500)">PREVISTO</span>')
-    + (e.projetoProtocolado ? '<span class="badge badge--outline">PROJETO</span>' : '');
+    + tagsProjeto(e).map(tag => `<span class="badge badge--outline">${tag}</span>`).join('');
   $('#fInc').textContent = e.incorporadora || '—';
   /* a data de lançamento do cadastro é sempre mês/ano (o pipeline fixa o dia 1);
      mostrar "01/03/2026" prometeria um dia que a fonte não tem */

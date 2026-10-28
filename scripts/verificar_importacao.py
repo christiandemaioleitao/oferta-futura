@@ -78,6 +78,7 @@ def auditar(url):
         'observacao': 'Observacao', 'terrenoTapumado': 'TerrenoTapumado',
         'projetoProtocolado': 'ProjetoProtocolado', 'projetoAprovado': 'ProjetoAprovado',
         'idProtocolo': 'IdProtocoloProjeto', 'dataProtocolo': 'DataProtocoloProjeto',
+        'dataProtocoloOutros': 'DataProtocoloProjetoOutros', 'dataRemembramento': 'DataRemembramentoDesmembramento',
         'dataAprovacao': 'DataAprovacao', 'linkProjeto': 'LinkDoProjeto', 'linkPortal': 'LinkPortal',
         'fonteEmpreendimento': 'FonteEmpreendimento', 'fonteDataLancamento': 'FonteDataLancamento',
         'fonteTipologia': 'FonteTipologia', 'fontePrevisao': 'FonteDataPrevisaoLancamento',
@@ -141,7 +142,9 @@ def auditar(url):
     check('Mercado: estoque mensal da master corresponde ao arquivo', not market_diffs and len(market) == len(published_market),
           {'meses': len(market), 'divergencias': len(market_diffs), 'exemplos': market_diffs[:10]})
 
-    no_date = pages('SELECT id::text, empreendimento, incorporadora, bairro, cidade, lat, lng '
+    no_date = pages('SELECT id::text, empreendimento, incorporadora, bairro, cidade, lat, lng, '
+                    'left(data_protocolo, 10) AS "dataProtocolo", left(data_aprovacao, 10) AS "dataAprovacao", '
+                    'left(data_protocolo_outros, 10) AS "dataProtocoloOutros", left(data_remembramento, 10) AS "dataRemembramento" '
                     'FROM "empreendimentos-sem-previsão-lançamento" ORDER BY id')
     published_no_date = {e['id'].removeprefix('sd-'): e for e in data['semPrevisao']}
     no_date_diffs = [r['id'] for r in no_date if any(not equal(published_no_date.get(r['id'], {}).get(k), v) for k, v in r.items() if k != 'id')]
