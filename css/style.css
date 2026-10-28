@@ -135,11 +135,12 @@ button{font-family:inherit}
 .map-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px;margin-bottom:10px;background:var(--paper);border:1px solid var(--hair);border-radius:10px}
 .map-tools__actions{display:flex;flex-wrap:wrap;gap:8px}
 .map-tools__actions .btn{font-size:11px;padding:7px 10px}
+.map-tools__actions .map-tools__icon{display:inline-flex;align-items:center;justify-content:center;padding:7px}
+.map-tools__actions .map-tools__icon svg{display:block}
 .map-tools__actions .map-tools__download{display:inline-flex;align-items:center;gap:4px;padding:6px 8px;font-size:10px}
 .map-tools__actions [aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
 .map-tools__actions :disabled{opacity:.45;cursor:default}
 .map-tools__value{font-size:12px;font-weight:600;color:var(--navy);overflow-wrap:anywhere}
-.map-tools small{flex-basis:100%;font-size:11px;line-height:1.5;color:var(--gray-600)}
 #map.map--measuring,#map.map--measuring .leaflet-interactive{cursor:crosshair}
 .map-measure-tip{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--navy);background:#fff;border:1px solid var(--red);border-radius:6px;padding:4px 8px}
 .map-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;letter-spacing:.08em;color:var(--gray-600)}

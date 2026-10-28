@@ -637,15 +637,11 @@ function renderMapTools() {
     output.textContent = `${count} ${count === 1 ? 'lote selecionado' : 'lotes selecionados'} · ${area === null ? 'Área total indisponível' : fmtDec(area, 2) + ' m²'}`;
   } else if (mapRulerPoints.length) {
     output.textContent = `Distância total · ${formatMapLength(rulerLength(mapRulerPoints))}`;
-  } else output.textContent = mapRulerActive ? 'Régua · clique no primeiro ponto.' : 'Nenhum lote selecionado.';
+  } else output.textContent = mapRulerActive ? 'Régua ativa.' : '';
   $('#mapRuler').setAttribute('aria-pressed', String(mapRulerActive));
   $('#mapMeasureClear').disabled = !mapSelectedLots.size && !mapRulerPoints.length && !mapRulerActive;
   $('#mapExportLots').disabled = !mapSelectedLots.size || mapKmzExporting;
   $('#mapExportLots').setAttribute('aria-busy', String(mapKmzExporting));
-  $('#mapMeasureHint').textContent = mapRulerActive
-    ? 'Clique nos pontos do percurso. Duplo clique conclui; Esc ou Limpar apaga a medição. Distância em linha no mapa.'
-    : mapRulerPoints.length ? 'Medição concluída. Use Régua para começar outra ou Limpar para apagar.'
-    : 'Clique em um lote; Ctrl + clique adiciona ou remove. Clique fora do mapa ou pressione uma tecla para desmarcar. Área geométrica do cadastro da Prefeitura.';
   map.getContainer().classList.toggle('map--measuring', mapRulerActive);
 }
 function clearSelectedLots() {
@@ -699,14 +695,6 @@ function initMapTools() {
   mapSelectionLayer = L.layerGroup().addTo(map);
   mapRulerLayer = L.layerGroup().addTo(map);
   const container = map.getContainer(), toolbar = $('#mapTools');
-  $('#mapSelectLots').onclick = () => {
-    clearMapTools();
-    if (map.getZoom() < GYN_CADASTRO.zoomMin.lote) map.setZoom(GYN_CADASTRO.zoomMin.lote);
-    clearTimeout(gynTimer.lote);
-    const checkbox = $('#lyrLotes');
-    if (!checkbox.checked) { checkbox.checked = true; checkbox.dispatchEvent(new Event('change')); }
-    else gynCarregarViewport('lote', loteLayer);
-  };
   $('#mapRuler').onclick = () => {
     if (mapRulerActive) { mapRulerActive = false; renderMapTools(); }
     else { clearMapTools(); map.closePopup(); mapRulerActive = true; renderMapTools(); }

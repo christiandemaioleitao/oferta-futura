@@ -137,7 +137,29 @@ def _montar_sem_previsao(registros):
     return out
 
 
-def _montar_mercado(merc, emps):
+def _prox_mes(m):
+    """'2026-06' -> '2026-07' (vira o ano em dezembro)."""
+    y, mo = int(m[:4]), int(m[5:7])
+    if mo == 12:
+        return f'{y + 1}-01'
+    return f'{y}-{mo + 1:02d}'
+
+
+def _media_vendas_trailing(vendas, mes_ref, janela=6):
+    """Vendas médias mensais do produto nos últimos `janela` meses até `mes_ref`.
+
+    vendas: lista ordenada de (m, unidades vendidas). Sem registro -> 0 (o estoque
+    do produto é carregado constante, nunca zerado de mentira).
+    """
+    if not vendas:
+        return 0.0
+    recentes = [v for m, v in vendas if m <= mes_ref][-janela:]
+    if not recentes:
+        return 0.0
+    return sum(recentes) / len(recentes)
+
+
+def _montar_mercado(merc, emps, vendas_mercado=None):
     """Estoque do mercado (síntese) com dimensões -> array `mercado`.
 
     Existe para o gráfico de estoque poder responder aos filtros SEM perder a base
@@ -155,8 +177,10 @@ def _montar_mercado(merc, emps):
     """
     if not merc:
         return []
+    vendas_mercado = vendas_mercado or {}
     meses_of = sorted({x['m'] for e in emps.values() for x in e.get('mensal') or []})
     mes_base = meses_of[0] if meses_of else None
+    mes_fim = meses_of[-1] if meses_of else None
 
     canon = {}
     for campo in ('bairro', 'incorporadora', 'tipo', 'macrozona'):
@@ -173,6 +197,29 @@ def _montar_mercado(merc, emps):
                       if (mes_base is None or m >= mes_base) and v[0] > 0]
         if not linhas_mes:
             continue
+        # A síntese só publica estoque até a data base; dali em diante a curva do
+        # mercado despencaria (10,9 mil un em jun/26 -> 149 em jul/26). O estoque
+        # remanescente continua existindo: levar a série adiante até o fim da
+        # janela de projeção, decaindo pelo ritmo de vendas do próprio produto
+        # (média dos últimos 6 meses). Produto sem vendas registradas carrega o
+        # estoque constante — conservador, nunca zera de mentira.
+        mes_ultimo, ult = linhas_mes[-1]
+        taxa = _media_vendas_trailing(vendas_mercado.get(nome_k), mes_ultimo)
+        if mes_fim and mes_ultimo < mes_fim:
+            total_ult = ult[0]
+            mix_tip, mix_fx, mix_tf = ult[1], ult[2], ult[3]
+            estoque = total_ult
+            m = _prox_mes(mes_ultimo)
+            while m <= mes_fim and estoque > 0:
+                estoque = max(estoque - min(taxa, estoque), 0.0)
+                if estoque <= 0:
+                    break
+                frac = estoque / total_ult
+                linhas_mes.append((m, [estoque,
+                                       {k: x * frac for k, x in mix_tip.items()},
+                                       {k: x * frac for k, x in mix_fx.items()},
+                                       {k: x * frac for k, x in mix_tf.items()}]))
+                m = _prox_mes(m)
         meses_vistos.update(m for m, _ in linhas_mes)
         out.append({
             'id': 'mk-%d' % (len(out) + 1),
@@ -376,11 +423,19 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
     sem_prev = _montar_sem_previsao(sem_previsao)
     if sem_prev:
         print('sem previsão:', len(sem_prev), 'empreendimentos (array semPrevisao)')
-    mercado_emps = _montar_mercado(merc, emps)
+    vendas_mercado = {_norm(nome): sorted(venda.items())
+                      for nome, venda in ((h['empreendimento'], h['vend']) for h in hist.values())}
+    mercado_emps = _montar_mercado(merc, emps, vendas_mercado)
+    # mercadoMensal passa a derivar da série estendida (mesma janela e mesmos
+    # números da curva com dimensões) — antes só ia até a data base e despencava.
+    mercado_total = defaultdict(float)
+    for e in mercado_emps:
+        for x in e['mensal']:
+            mercado_total[x['m']] += x['disp']
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
             'semPrevisao': sem_prev, 'mercado': mercado_emps,
-            'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado.items())]}
+            'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado_total.items())]}
     destino = os.path.join(BASE, 'data', 'dados_of.js')
     with open(destino, 'w', encoding='utf-8') as f:
         f.write('window.OF_DATA=')
