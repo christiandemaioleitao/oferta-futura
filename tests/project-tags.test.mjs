@@ -6,7 +6,8 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 const helper = source.match(/function tagsProjeto\(e\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(helper, 'Classificação dos cards precisa existir.');
-const tagsProjeto = vm.runInNewContext(`(${helper})`);
+const statusHelpers = source.slice(0, source.indexOf('/* ---------- dados ---------- */'));
+const tagsProjeto = vm.runInNewContext(`${statusHelpers}\n${helper}\ntagsProjeto;`);
 
 test('tags dos cards seguem as datas e a precedência dos quatro estágios', () => {
   const fields = ['dataProtocoloOutros', 'dataRemembramento', 'dataProtocolo', 'dataAprovacao'];
@@ -21,4 +22,12 @@ test('tags dos cards seguem as datas e a precedência dos quatro estágios', () 
   }
   assert.equal(tagsProjeto({ projetoProtocolado: true, projetoAprovado: true }).length, 0);
   assert.equal(tagsProjeto(Object.fromEntries(fields.map(field => [field, '']))).length, 0);
+});
+
+test('empreendimento lançado não exibe tags de projeto, mesmo com todas as datas preenchidas', () => {
+  const dates = { dataAprovacao: '2026-01-01', dataProtocolo: '2025-12-01',
+    dataRemembramento: '2025-11-01', dataProtocoloOutros: '2025-10-01' };
+  assert.equal(tagsProjeto({ ...dates, dtLancamento: '2000-01-01' }).length, 0);
+  assert.equal(tagsProjeto({ ...dates, fonteDataLancamento: 'LANÇADO' }).length, 0);
+  assert.equal(tagsProjeto({ ...dates, dtLancamento: '2999-01-01' }).join('|'), 'Projeto Aprovado');
 });

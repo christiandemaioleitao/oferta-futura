@@ -1431,6 +1431,7 @@ $$('#semPrevTable th[data-sort]').forEach(th => th.onclick = () => {
 
 /* ---------- ficha (tooltip redesign) ---------- */
 function tagsProjeto(e) {
+  if (statusEmp(e) === 'LANÇADO') return [];
   if (e.dataAprovacao) return ['Projeto Aprovado'];
   if (e.dataProtocolo) return ['Projeto Protocolado'];
   if (e.dataRemembramento) return ['Remembrado'];
