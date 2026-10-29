@@ -439,6 +439,56 @@ def ler_empreendimentos_sql():
     return df
 
 
+def ler_coordenadas_sql():
+    """Vértices da seção Coordenadas do Portal -> DataFrame id/lat/lng.
+
+    A tabela não tem nome garantido (schema evolui com o portal): descobre via
+    INFORMATION_SCHEMA a tabela com Latitude+Longitude+chave do cadastro. Falha
+    (tabela ausente, permissão, layout novo) NÃO derruba o pipeline — o dashboard
+    cai no snapshot manual data/portal_coordenadas.js e o log avisa.
+    """
+    try:
+        conn = sqlserver_connect()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT t.name,
+                   MAX(CASE WHEN c.name LIKE 'EmpreendimentoCadastro%Id' OR c.name LIKE 'EmpreendimentoCadastroId' THEN c.name END) AS fk
+                   , MAX(CASE WHEN c.name = 'Latitude' THEN 1 ELSE 0 END) AS tem_lat
+                   , MAX(CASE WHEN c.name = 'Longitude' THEN 1 ELSE 0 END) AS tem_lng
+                   , MAX(CASE WHEN c.name LIKE '%Ordem%' THEN 1 ELSE 0 END) AS tem_ordem
+            FROM sys.tables t JOIN sys.columns c ON c.object_id = t.object_id
+            WHERE t.name LIKE '%Coordenada%'
+            GROUP BY t.name""")
+        candidatos = cur.fetchall()
+        escolhida = None
+        for tabela, fk, tem_lat, tem_lng, tem_ordem in candidatos:
+            if fk and tem_lat and tem_lng:
+                escolhida = (tabela, fk, tem_ordem)
+                break
+        if not escolhida:
+            print('  AVISO: tabela de coordenadas não encontrada no SQL Server — snapshot manual segue em pé')
+            conn.close()
+            return pd.DataFrame(columns=['id_empreendimento', 'latitude', 'longitude'])
+        tabela, fk, tem_ordem = escolhida
+        ordem = 'Ordem, Id' if tem_ordem else 'Id'
+        cur.execute(f'SELECT {fk} AS Id_empreendimento, '
+                    f'Latitude AS latitude, Longitude AS longitude '
+                    f'FROM dbo.{tabela} ORDER BY {fk}, {ordem}')
+        cols = [d[0] for d in cur.description]
+        df = pd.DataFrame.from_records(cur.fetchall(), columns=cols)
+        conn.close()
+        for c in df.columns:
+            if df[c].dtype == object:
+                df[c] = df[c].apply(lambda v: float(v) if hasattr(v, 'as_tuple') else v)
+        df = df.dropna(subset=['latitude', 'longitude'])
+        n_emp = df['Id_empreendimento'].nunique() if len(df) else 0
+        print(f'  coordenadas (dbo.{tabela}): {len(df)} vértices / {n_emp} empreendimentos')
+        return df.rename(columns={'Id_empreendimento': 'id_empreendimento'})
+    except Exception as e:
+        print(f'  AVISO: coordenadas do SQL indisponíveis ({str(e)[:120]}) — snapshot manual segue em pé')
+        return pd.DataFrame(columns=['id_empreendimento', 'latitude', 'longitude'])
+
+
 def ler_sintese_neon(conn):
     print('Lendo síntese consolidada do Neon...')
     cur = conn.cursor()
@@ -499,6 +549,7 @@ def main():
     df_s = ler_sintese_neon(pg)
     df_of = ler_empreendimentos_sql()
     df_sem_prev = gravar_sem_previsao(pg)
+    df_coord = ler_coordenadas_sql()
 
     # -------- etapa 1: curvas por cluster (síntese) --------
     df_s['datalancamento'] = pd.to_datetime(df_s['datalancamento'], errors='coerce')
@@ -657,7 +708,8 @@ def main():
     # os sem previsão entram no dados_of.js num array separado (semPrevisao): aparecem
     # nos filtros, no mapa e na tabela própria SEM tocar os indicadores da projeção
     preprocess.gerar_de_dataframe(df_master, fonte='projecao_of (Neon)',
-                                  sem_previsao=df_sem_prev.to_dict('records'))
+                                  sem_previsao=df_sem_prev.to_dict('records'),
+                                  coordenadas=df_coord.to_dict('records') if len(df_coord) else None)
     atualizar_cache_buster()
     print('Pipeline concluído.')
 

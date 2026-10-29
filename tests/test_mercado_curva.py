@@ -76,6 +76,32 @@ class MercadoCurvaTest(unittest.TestCase):
         data = self._gerar(linhas)
         self.assertEqual(data['mercado'], [])  # saiu do mercado (evita dupla contagem)
 
+    def test_coordenadas_do_portal_entram_agrupadas_no_dados_of(self):
+        linhas = [linha_projecao(m, 400) for m in ('2026-04', '2026-05', '2026-06')]
+        coords = [
+            {'id_empreendimento': 9, 'latitude': -16.7, 'longitude': -49.27},
+            {'id_empreendimento': 1952, 'latitude': -16.69717411, 'longitude': -49.26661233},
+            {'id_empreendimento': 1952, 'latitude': -16.69735140, 'longitude': -49.26684142},
+            {'id_empreendimento': 1952, 'latitude': -16.69717411, 'longitude': -49.26661233},
+        ]
+        with tempfile.TemporaryDirectory() as folder, patch.object(preprocess, 'BASE', folder):
+            (Path(folder) / 'data').mkdir()
+            preprocess.gerar_dados(COLUNAS, [tuple(l) for l in linhas], 'teste',
+                                   coordenadas=coords)
+            conteudo = (Path(folder) / 'data/dados_of.js').read_text(encoding='utf-8')
+        data = json.loads(conteudo.removeprefix('window.OF_DATA=').removesuffix(';'))
+        pc = dict(data['portalCoordenadas'])
+        self.assertEqual(sorted(pc), [9, 1952])
+        self.assertEqual(pc[9], [[-16.7, -49.27]])
+        self.assertEqual(pc[1952], [[-16.69717411, -49.26661233],
+                                    [-16.6973514, -49.26684142],
+                                    [-16.69717411, -49.26661233]])
+
+    def test_sem_coordenadas_o_array_nasce_vazio(self):
+        linhas = [linha_projecao(m, 400) for m in ('2026-04', '2026-05', '2026-06')]
+        data = self._gerar(linhas)
+        self.assertEqual(data['portalCoordenadas'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

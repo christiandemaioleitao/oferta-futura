@@ -560,7 +560,12 @@ function renderPortalLayer() {
   const filterOn = anyFilterActive();
   const porId = new Map(allEmps().map(e => [String(e.id), e]));
   portalRenderer = portalRenderer || L.canvas();
-  portalCoordsVisiveis(window.OF_PORTAL_COORDS, ids, filterOn).forEach(([id, verts]) => {
+  /* fonte primária: pipeline (SQL do próprio portal, array portalCoordenadas em
+     OF_DATA). O snapshot manual (OF_PORTAL_COORDS) vale só quando a base antiga
+     ainda não passou pelo pipeline com coordenadas. */
+  const fontes = [window.OF_DATA && OF_DATA.portalCoordenadas, window.OF_PORTAL_COORDS];
+  const base = fontes.find(a => a && a.length) || [];
+  portalCoordsVisiveis(base, ids, filterOn).forEach(([id, verts]) => {
     const emp = porId.get(String(id));
     L.polygon(verts, { renderer: portalRenderer, color: '#1B9E77', weight: 1.8, fillColor: '#1B9E77', fillOpacity: .22 })
       .bindPopup(`<div class="map-pop"><b>${escapeHtml(emp ? emp.empreendimento : 'Terreno #' + id)}</b><span class="mono">${emp ? escapeHtml(emp.bairro || '') + ' · ' : ''}COORDENADAS · PORTAL DA INTELIGÊNCIA</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)

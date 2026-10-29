@@ -245,7 +245,7 @@ def _montar_mercado(merc, emps, vendas_mercado=None):
     return out
 
 
-def gerar_dados(header, linhas, fonte, sem_previsao=None):
+def gerar_dados(header, linhas, fonte, sem_previsao=None, coordenadas=None):
     """Monta data/dados_of.js a partir de linhas no esquema da master.
 
     header: lista de nomes de coluna. linhas: iterável de tuplas na mesma ordem.
@@ -432,9 +432,25 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None):
     for e in mercado_emps:
         for x in e['mensal']:
             mercado_total[x['m']] += x['disp']
+    # coordenadas do portal: lista de dicts {id_empreendimento, latitude, longitude}
+    # (ordem já vem do SQL por Ordem) -> array [[id, [[lat,lng],...]], ...]
+    coord = []
+    if coordenadas:
+        por_emp = {}
+        for c in coordenadas:
+            lat, lng = c.get('latitude'), c.get('longitude')
+            if lat is None or lng is None:
+                continue
+            try:
+                eid = int(float(c['id_empreendimento']))
+                por_emp.setdefault(eid, []).append([round(float(lat), 8), round(float(lng), 8)])
+            except (TypeError, ValueError, KeyError):
+                continue
+        coord = [[eid, verts] for eid, verts in sorted(por_emp.items())]
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
             'semPrevisao': sem_prev, 'mercado': mercado_emps,
+            'portalCoordenadas': coord,
             'mercadoMensal': [[m, round(v, 1)] for m, v in sorted(mercado_total.items())]}
     destino = os.path.join(BASE, 'data', 'dados_of.js')
     with open(destino, 'w', encoding='utf-8') as f:
@@ -535,9 +551,10 @@ def gerar_mapa(kmz_path=KMZ_PADRAO):
     return len(features)
 
 
-def gerar_de_dataframe(df, fonte, kmz_path=KMZ_PADRAO, sem_previsao=None):
+def gerar_de_dataframe(df, fonte, kmz_path=KMZ_PADRAO, sem_previsao=None, coordenadas=None):
     """Caminho usado pelo pipeline: master em memória, sem passar por Excel."""
-    gerar_dados(list(df.columns), df.itertuples(index=False, name=None), fonte, sem_previsao=sem_previsao)
+    gerar_dados(list(df.columns), df.itertuples(index=False, name=None), fonte,
+                sem_previsao=sem_previsao, coordenadas=coordenadas)
     gerar_mapa(kmz_path)
 
 
