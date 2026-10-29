@@ -446,7 +446,21 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None, coordenadas=None):
                 por_emp.setdefault(eid, []).append([round(float(lat), 8), round(float(lng), 8)])
             except (TypeError, ValueError, KeyError):
                 continue
-        coord = [[eid, verts] for eid, verts in sorted(por_emp.items())]
+        # [id, vértices, nome do portal, bairro do portal] — o nome vem junto porque
+        # um terreno pode não estar na projeção do dashboard e o front não teria
+        # por quem casar o id (popup ficaria "Terreno #328" sem o nome)
+        nomes = {}
+        for c in coordenadas:
+            eid = c.get('id_empreendimento')
+            if eid is None:
+                continue
+            try:
+                nomes[int(float(eid))] = (str(c.get('empreendimento') or ''),
+                                          str(c.get('bairro') or ''))
+            except (TypeError, ValueError):
+                continue
+        coord = [[eid, verts, nomes.get(eid, ('', ''))[0], nomes.get(eid, ('', ''))[1]]
+                 for eid, verts in sorted(por_emp.items())]
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
             'semPrevisao': sem_prev, 'mercado': mercado_emps,

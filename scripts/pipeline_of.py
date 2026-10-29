@@ -471,9 +471,13 @@ def ler_coordenadas_sql():
             return pd.DataFrame(columns=['id_empreendimento', 'latitude', 'longitude'])
         tabela, fk, tem_ordem = escolhida
         ordem = 'Ordem, Id' if tem_ordem else 'Id'
-        cur.execute(f'SELECT {fk} AS Id_empreendimento, '
-                    f'Latitude AS latitude, Longitude AS longitude '
-                    f'FROM dbo.{tabela} ORDER BY {fk}, {ordem}')
+        cur.execute(f'SELECT c.{fk} AS Id_empreendimento, '
+                    f'c.Latitude AS latitude, c.Longitude AS longitude, '
+                    f'ec.Empreendimento AS empreendimento, b.Nome AS bairro '
+                    f'FROM dbo.{tabela} c '
+                    f'LEFT JOIN dbo.EmpreendimentoCadastro ec ON ec.Id = c.{fk} '
+                    f'LEFT JOIN dbo.Bairro b ON b.Id = ec.BairroId '
+                    f'ORDER BY c.{fk}, {ordem}')
         cols = [d[0] for d in cur.description]
         df = pd.DataFrame.from_records(cur.fetchall(), columns=cols)
         conn.close()

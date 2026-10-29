@@ -565,10 +565,13 @@ function renderPortalLayer() {
      ainda não passou pelo pipeline com coordenadas. */
   const fontes = [window.OF_DATA && OF_DATA.portalCoordenadas, window.OF_PORTAL_COORDS];
   const base = fontes.find(a => a && a.length) || [];
-  portalCoordsVisiveis(base, ids, filterOn).forEach(([id, verts]) => {
+  portalCoordsVisiveis(base, ids, filterOn).forEach(rec => {
+    const [id, verts, nomePortal, bairroPortal] = rec;
     const emp = porId.get(String(id));
+    const titulo = (emp && emp.empreendimento) || nomePortal || ('Terreno #' + id);
+    const sub = escapeHtml((emp ? (emp.bairro || '') : bairroPortal) || '');
     L.polygon(verts, { renderer: portalRenderer, color: '#1B9E77', weight: 1.8, fillColor: '#1B9E77', fillOpacity: .22 })
-      .bindPopup(`<div class="map-pop"><b>${escapeHtml(emp ? emp.empreendimento : 'Terreno #' + id)}</b><span class="mono">${emp ? escapeHtml(emp.bairro || '') + ' · ' : ''}COORDENADAS · PORTAL DA INTELIGÊNCIA</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
+      .bindPopup(`<div class="map-pop"><b>${escapeHtml(titulo)}</b><span class="mono">${sub ? sub + ' · ' : ''}COORDENADAS · PORTAL DA INTELIGÊNCIA</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
       .addTo(portalLayer);
   });
 }
