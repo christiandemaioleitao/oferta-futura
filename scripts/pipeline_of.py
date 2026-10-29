@@ -470,7 +470,7 @@ def ler_coordenadas_sql():
             conn.close()
             return pd.DataFrame(columns=['id_empreendimento', 'latitude', 'longitude'])
         tabela, fk, tem_ordem = escolhida
-        ordem = 'Ordem, Id' if tem_ordem else 'Id'
+        ordem = f'c.Ordem, c.{fk}' if tem_ordem else f'c.{fk}'
         cur.execute(f'SELECT c.{fk} AS Id_empreendimento, '
                     f'c.Latitude AS latitude, c.Longitude AS longitude, '
                     f'ec.Empreendimento AS empreendimento, b.Nome AS bairro '
