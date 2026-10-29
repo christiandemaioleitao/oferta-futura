@@ -2846,7 +2846,10 @@ function estagioProjeto(e) {
   return { aprovado, emProtocolo: protocolado && !aprovado };
 }
 function baseIncorporadoras() {
-  return DATA.empreendimentos.filter(e => empMatches(e, false))
+  /* a tabela obedece apenas aos filtros do próprio módulo: inclui TODOS os
+     empreendimentos do banco com data de protocolo preenchida, sem o filtro
+     de período de lançamento do topo */
+  return DATA.empreendimentos.filter(e => e.dataProtocolo)
     .filter(e => !incJanela() || dentroInc(e.dataProtocolo) || dentroInc(e.dataAprovacao));
 }
 function statsIncorporadoras(emps) {
@@ -2893,9 +2896,7 @@ function dadosIncorporadoras() {
   }), { projetos: 0, unidades: 0, protocolo: 0, aprovados: 0, lancados: 0, prazos: [] });
   /* a janela é OU, não E: basta o protocolo OU a aprovação cair no período para o
      empreendimento entrar (ver baseIncorporadoras) */
-  const legenda = incJanela()
-    ? `Projetos protocolados OU aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · basta uma das duas datas cair no período · não obedece ao filtro de período de lançamento · lançado = lançamento até ${ymLabel(rEguaLancamento())}`
-    : `Toda a base, sem recorte de período · lançado = lançamento até ${ymLabel(rEguaLancamento())} · tempo de aprovação = protocolo → aprovação`;
+  const legenda = `Projetos com data de protocolo preenchida · ${incJanela() ? `protocolados OU aprovados entre ${incFrom ? ymLabel(incFrom) : '…'} e ${incTo ? ymLabel(incTo) : '…'} · basta uma das duas datas cair no período` : 'sem recorte de período'} · não obedece aos filtros do topo da página · lançado = lançamento até ${ymLabel(rEguaLancamento())}`;
   return { linhas, tot, legenda };
 }
 function renderIncorporadoras() {
@@ -2903,8 +2904,7 @@ function renderIncorporadoras() {
   const { linhas, tot, legenda } = dadosIncorporadoras();
   const meses = incMeses;
   const marca = v => v ? `<b>${v}</b>` : '·';
-  const sub = $('#incSub');
-  if (sub) sub.textContent = legenda;
+
   const cols = [
     { k: 'nome', label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' },
     { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
