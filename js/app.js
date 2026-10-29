@@ -1278,7 +1278,7 @@ function renderCharts() {
           afterBody: items => items.length ? ['', ...rotuloPonto(pontos[items[0].dataIndex]),
             ...dispTooltipList(pontos[items[0].dataIndex].m, filtered.concat(mercEmps))] : [],
         } } },
-        scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
+        scales: { y: { beginAtZero: true, grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
   } else {
     /* curva ÚNICA: estoque do mercado + estoque dos previstos a lançar, somados mês a
@@ -1316,7 +1316,7 @@ function renderCharts() {
           return ['', ...rotuloPonto(p), ...partes, ...dispTooltipList(p.m, filtered.concat(mercEmps))];
         },
       } } },
-        scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
+        scales: { y: { beginAtZero: true, grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } }
     });
   }
   const lref = periodoModo === 'ltm' ? ref : periodKeyOF(ref, periodoModo);
@@ -1870,13 +1870,12 @@ async function exportPdf() {
         <td class="r">${fmtInt(no.unidades)}</td>
         <td class="r">${no.protocolo || '·'}</td>
         <td class="r">${no.aprovados || '·'}</td>
-        <td class="r">${no.lancados || '·'}</td>
         <td>${no.ehEmp ? (dateBR(no.dataProtocolo) || '—') : ''}</td>
         <td>${no.ehEmp ? (dateBR(no.dataAprovacao) || '—') : ''}</td>
         <td class="r">${incMeses(no.medianaAprov)}</td>
         <td class="r">${incMeses(no.mediaAprov)}</td></tr>`).join('')
         + (p.n === p.total ? `<tr><td><b>TOTAL</b></td><td class="r"><b>${fmtInt(di.tot.projetos)}</b></td><td class="r"><b>${fmtInt(di.tot.unidades)}</b></td>
-          <td class="r"><b>${fmtInt(di.tot.protocolo)}</b></td><td class="r"><b>${fmtInt(di.tot.aprovados)}</b></td><td class="r"><b>${fmtInt(di.tot.lancados)}</b></td>
+          <td class="r"><b>${fmtInt(di.tot.protocolo)}</b></td><td class="r"><b>${fmtInt(di.tot.aprovados)}</b></td>
           <td></td><td></td><td class="r"><b>${incMeses(mediana(di.tot.prazos))}</b></td><td class="r"><b>${incMeses(media(di.tot.prazos))}</b></td></tr>` : ''))));
     // ---- 06 concentração ----
     const dc = dadosConcentracao();
@@ -2882,7 +2881,7 @@ let incNivel = 0;   // 0=incorporadora (com drill p/ empreendimentos), 1=empreen
 const incMeses = d => d == null ? '—' : (d / 30.44).toFixed(1).replace('.', ',') + ' m';
 const incColsPdf = () => [
   { label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' }, { label: 'PROJETOS', r: true }, { label: 'UNIDADES', r: true },
-  { label: 'EM PROTOCOLO', r: true }, { label: 'APROVADOS', r: true }, { label: 'LANÇADOS', r: true },
+  { label: 'EM PROTOCOLO', r: true }, { label: 'APROVADOS', r: true },
   { label: 'DATA PROTOCOLO' }, { label: 'DATA APROVAÇÃO' }, { label: 'APROV. MEDIANA', r: true }, { label: 'APROV. MÉDIA', r: true },
 ];
 function dadosIncorporadoras() {
@@ -2909,7 +2908,6 @@ function renderIncorporadoras() {
     { k: 'nome', label: incNivel ? 'EMPREENDIMENTO' : 'INCORPORADORA / EMPREENDIMENTO' },
     { k: 'projetos', label: 'PROJETOS', num: true }, { k: 'unidades', label: 'UNIDADES', num: true },
     { k: 'protocolo', label: 'EM PROTOCOLO', num: true }, { k: 'aprovados', label: 'APROVADOS', num: true },
-    { k: 'lancados', label: 'LANÇADOS', num: true },
     /* datas só existem na linha de empreendimento; no nível incorporadora a célula fica em branco.
        Ordenar por elas ordena os empreendimentos DENTRO de cada incorporadora (ISO ordena como texto). */
     { k: 'dataProtocolo', label: 'DATA PROTOCOLO' }, { k: 'dataAprovacao', label: 'DATA APROVAÇÃO' },
@@ -2923,7 +2921,6 @@ function renderIncorporadoras() {
       <td class="num">${fmtInt(l.unidades)}</td>
       <td class="num">${l.ehEmp ? marca(l.protocolo) : (l.protocolo ? `<span class="pill pill--wait">${l.protocolo}</span>` : '<span class="pill pill--none">0</span>')}</td>
       <td class="num">${l.ehEmp ? marca(l.aprovados) : (l.aprovados ? `<span class="pill pill--ok">${l.aprovados}</span>` : '<span class="pill pill--none">0</span>')}</td>
-      <td class="num">${l.ehEmp ? marca(l.lancados) : fmtInt(l.lancados)}</td>
       <td class="num">${l.ehEmp ? (dateBR(l.dataProtocolo) || '—') : ''}</td>
       <td class="num">${l.ehEmp ? (dateBR(l.dataAprovacao) || '—') : ''}</td>
       <td class="num">${meses(l.medianaAprov)}</td>
@@ -2933,7 +2930,6 @@ function renderIncorporadoras() {
       <td>TOTAL · ${linhas.length} ${incNivel ? 'empreendimentos' : 'incorporadoras'}</td>
       <td class="num">${fmtInt(tot.projetos)}</td><td class="num">${fmtInt(tot.unidades)}</td>
       <td class="num">${fmtInt(tot.protocolo)}</td><td class="num">${fmtInt(tot.aprovados)}</td>
-      <td class="num">${fmtInt(tot.lancados)}</td>
       <td></td><td></td>
       <td class="num">${meses(mediana(tot.prazos))}</td><td class="num">${meses(media(tot.prazos))}</td>
     </tr></tbody>`;
