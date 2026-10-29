@@ -3325,6 +3325,15 @@ cfgPronta.then(() => {
 });
 initPlanoDiretor();
 initExpandir();
+/* barra de ações (Importar KMZ, exportações, PDFs) escondida atrás do "+":
+   cabeçalho minimalista; o painel abre abaixo do botão */
+$('#acoesToggle')?.addEventListener('click', () => {
+  const painel = $('#acoesPanel'), toggle = $('#acoesToggle');
+  const abre = painel.hidden;
+  painel.hidden = !abre;
+  toggle.textContent = abre ? '×' : '+';
+  toggle.setAttribute('aria-expanded', String(abre));
+});
 ligarLarguras('radarTable');   // thead do radar é estático; as demais religam a cada render
 const MESES_PROJ = mesesDe(['dataProtocolo', 'dataAprovacao']);
 ligarCampoMes(campoMes('incFrom', MESES_PROJ), v => { incFrom = v; renderIncorporadoras(); });
