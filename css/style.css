@@ -144,6 +144,10 @@ button{font-family:inherit}
 #map.map--measuring,#map.map--measuring .leaflet-interactive{cursor:crosshair}
 .map-measure-tip{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--navy);background:#fff;border:1px solid var(--red);border-radius:6px;padding:4px 8px}
 .map-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10.5px;letter-spacing:.08em;color:var(--gray-600)}
+#mapLayersPanel[hidden]{display:none}
+#mapLayersPanel{flex-basis:100%}
+.map-layers-toggle{border:1px solid var(--hair);background:var(--paper);color:var(--navy);border-radius:8px;width:28px;height:28px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto}
+.map-layers-toggle:hover{border-color:var(--navy)}
 .map-legend label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .map-legend input{accent-color:var(--red)}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block}

@@ -216,7 +216,11 @@ function buildFilters() {
   buildMultiselect('macrozona', uniqueVals(e => mzLabel(e.macrozona)));
   buildMultiselect('bairro', uniqueVals(e => e.bairro));
   buildMultiselect('incorporadora', uniqueVals(e => e.incorporadora));
-  buildMultiselect('tipo', uniqueVals(e => e.tipo));
+  /* padrão editorial: todos os tipos selecionados, exceto LOTEAMENTO — o dashboard
+     abre com o recorte de produto vertical já aplicado (o usuário pode mudar). */
+  const tipoVals = uniqueVals(e => e.tipo);
+  state.tipo = new Set(tipoVals.map(v => v.id).filter(id => !/LOTEAMENTO/i.test(id)));
+  buildMultiselect('tipo', tipoVals);
   const tips = new Set();
   DATA.empreendimentos.forEach(e => (e.tipologias || []).forEach(t => tips.add(String(t.tratada != null ? t.tratada : t.tipologia))));
   buildMultiselect('tipologia', [...tips].sort().map(v => ({ id: v, label: rotuloTipologia(v) })));
@@ -734,6 +738,12 @@ function initMapTools() {
   };
   $('#mapMeasureClear').onclick = clearMapTools;
   $('#mapExportLots').onclick = exportSelectedLotsKmz;
+  /* expandir: reusa o alternarExpansao (mesmo comportamento do botão do card),
+     mas o controle fica aqui, ao lado do KMZ */
+  $('#mapExpand')?.addEventListener('click', function () {
+    const card = $('#mapTools').closest('.card');
+    if (card) alternarExpansao(card, this);
+  });
   let pointerStart = null;
   container.addEventListener('pointerdown', event => { pointerStart = [event.clientX, event.clientY]; }, true);
   container.addEventListener('click', event => {
@@ -883,6 +893,16 @@ function initCadastroGyn() {
   $('#lyrPortal').onchange = e => {
     if (e.target.checked) { renderPortalLayer(); map.addLayer(portalLayer); }
     else map.removeLayer(portalLayer);
+  };
+  /* painel de camadas/buscas escondido atrás do "+": o cabeçalho do mapa fica
+     minimalista; o clique alterna o painel inteiro */
+  const layersToggle = $('#mapLayersToggle'), layersPanel = $('#mapLayersPanel');
+  if (layersToggle && layersPanel) layersToggle.onclick = () => {
+    const abre = layersPanel.hidden;
+    layersPanel.hidden = !abre;
+    layersToggle.textContent = abre ? '×' : '+';
+    layersToggle.setAttribute('aria-expanded', String(abre));
+    if (map) map.invalidateSize();
   };
   map.on('moveend', () => {
     [['quadra', quadraLayer], ['lote', loteLayer]].forEach(([tipo, layer]) => {
@@ -2763,7 +2783,7 @@ function alternarExpansao(card, btn) {
   const abrindo = cardExpandido !== card;
   if (cardExpandido) {
     cardExpandido.classList.remove('card-expanded');
-    cardExpandido.__btn.innerHTML = EXPAND_SVG;
+    cardExpandido.__btn.innerHTML = cardExpandido.__btnHTML || EXPAND_SVG;
     cardExpandido.__btn.title = 'Expandir';
     cardExpandido = null;
     $('.expand-back')?.remove();
@@ -2776,6 +2796,7 @@ function alternarExpansao(card, btn) {
     document.body.appendChild(fundo);
     card.classList.add('card-expanded');
     card.__btn = btn;
+    card.__btnHTML = btn.innerHTML;   // preserva o ícone custom (ex.: expandir do mapa)
     btn.innerHTML = COLAPSE_SVG;
     btn.title = 'Restaurar';
     document.body.classList.add('has-expanded');
@@ -2787,6 +2808,8 @@ function initExpandir() {
   $$('.card, .filters').forEach(card => {
     const head = card.querySelector('.card__head, .filters__head');
     if (!head || card.querySelector(':scope > .card__head .expand-btn')) return;
+    // o card do mapa tem o próprio botão de expandir (ao lado do KMZ, em map-tools)
+    if (card.querySelector('#mapExpand')) return;
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'expand-btn'; btn.title = 'Expandir';
     btn.setAttribute('aria-label', 'Expandir painel');
