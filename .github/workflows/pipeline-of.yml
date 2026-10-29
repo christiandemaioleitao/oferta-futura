@@ -9,7 +9,7 @@ on:
         default: false
       data_base:
         description: "Data base (mm/aaaa) - a janela e a projeção vão daqui até +18 meses"
-        default: "01/2026"
+        default: "06/2026"
       fator_ajuste:
         description: "Fator multiplicador da curva"
         default: "1.0"

@@ -14,7 +14,7 @@ Fluxo:
      o commit do workflow dispara o deploy automático no Vercel).
 
 Parâmetros (variáveis de ambiente):
-  OF_DATA_BASE    mm/aaaa  data base da projeção                (padrão 01/2026)
+  OF_DATA_BASE    mm/aaaa  data base da projeção                (padrão 06/2026)
   FATOR_AJUSTE    float    fator multiplicador da curva          (padrão 1.0)
   OF_MANTER_PARAMETROS  1 reutiliza data base e fator gravados no Neon (botão do site)
 
@@ -538,7 +538,7 @@ def parametros_anteriores(pg):
 
 def main():
     load_env()
-    data_base = os.environ.get('OF_DATA_BASE', '01/2026')
+    data_base = os.environ.get('OF_DATA_BASE', '06/2026')
     fator_ajuste = float(os.environ.get('FATOR_AJUSTE', '1.0').replace(',', '.'))
     pg = None
     if os.environ.get('OF_MANTER_PARAMETROS') == '1':
