@@ -470,14 +470,15 @@ def ler_coordenadas_sql():
             conn.close()
             return pd.DataFrame(columns=['id_empreendimento', 'latitude', 'longitude'])
         tabela, fk, tem_ordem = escolhida
-        ordem = f'c.Ordem, c.{fk}' if tem_ordem else f'c.{fk}'
+        # sem ORDER BY no servidor: nomes de coluna variam por versão do schema
+        # (Id/Ordem ambíguos com o JOIN) — traz Ordem quando existe e ordena no pandas
+        col_ordem = ', c.Ordem AS ordem' if tem_ordem else ''
         cur.execute(f'SELECT c.{fk} AS Id_empreendimento, '
-                    f'c.Latitude AS latitude, c.Longitude AS longitude, '
+                    f'c.Latitude AS latitude, c.Longitude AS longitude{col_ordem}, '
                     f'ec.Empreendimento AS empreendimento, b.Nome AS bairro '
                     f'FROM dbo.{tabela} c '
                     f'LEFT JOIN dbo.EmpreendimentoCadastro ec ON ec.Id = c.{fk} '
-                    f'LEFT JOIN dbo.Bairro b ON b.Id = ec.BairroId '
-                    f'ORDER BY c.{fk}, {ordem}')
+                    f'LEFT JOIN dbo.Bairro b ON b.Id = ec.BairroId')
         cols = [d[0] for d in cur.description]
         df = pd.DataFrame.from_records(cur.fetchall(), columns=cols)
         conn.close()
@@ -485,6 +486,10 @@ def ler_coordenadas_sql():
             if df[c].dtype == object:
                 df[c] = df[c].apply(lambda v: float(v) if hasattr(v, 'as_tuple') else v)
         df = df.dropna(subset=['latitude', 'longitude'])
+        if 'ordem' in df.columns:
+            df = df.sort_values(['Id_empreendimento', 'ordem'], kind='stable').drop(columns=['ordem'])
+        else:
+            df = df.sort_values(['Id_empreendimento'], kind='stable')
         n_emp = df['Id_empreendimento'].nunique() if len(df) else 0
         print(f'  coordenadas (dbo.{tabela}): {len(df)} vértices / {n_emp} empreendimentos')
         return df.rename(columns={'Id_empreendimento': 'id_empreendimento'})
