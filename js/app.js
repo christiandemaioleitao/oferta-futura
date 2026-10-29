@@ -422,7 +422,7 @@ function visibleKmzFeatures() {
 }
 
 /* ---------- mapa ---------- */
-let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles;
+let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles, satLabels;
 let portalLayer, portalRenderer = null;
 const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
@@ -432,6 +432,13 @@ function initMap() {
   }).addTo(map);
   satTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri · Maxar, Earthstar Geographics', crossOrigin: true, maxZoom: 19,
+  });
+  /* rótulos (nomes de ruas) sobre a imagem de satélite: tiles transparentes só de
+     texto, em pane própria acima dos tiles e abaixo das sobreposições vetoriais */
+  map.createPane('rotulosSat');
+  map.getPane('rotulosSat').style.zIndex = 350;
+  satLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; CARTO', crossOrigin: true, maxZoom: 19, pane: 'rotulosSat',
   });
   map.createPane('planoDiretor');
   map.getPane('planoDiretor').style.zIndex = 370; // abaixo dos bairros e dos marcadores
@@ -485,8 +492,8 @@ function initMap() {
     gynBuscar(loteBusca, pts);
   });
   $('#lyrSat').onchange = e => {
-    if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); }
-    else { map.removeLayer(satTiles); baseTiles.addTo(map); }
+    if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); satLabels.addTo(map); }
+    else { map.removeLayer(satTiles); map.removeLayer(satLabels); baseTiles.addTo(map); }
   };
   renderKmzLayers();
 }
