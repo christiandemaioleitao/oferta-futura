@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261028-2345" />
+<link rel="stylesheet" href="css/style.css?v=20261029-0045" />
 </head>
 <body>
 <main class="sg-gate" id="sgGate">
@@ -125,6 +125,7 @@
           <label title="Terrenos monitorados sem data de lançamento ou previsão — direto do banco"><input type="checkbox" id="lyrSemData" /><i class="dot" style="background:#8A93A6"></i>SEM PREVISÃO</label>
           <label title="Quadras do cadastro oficial da Prefeitura de Goiânia — baixa o recorte visível (zoom 14+)"><input type="checkbox" id="lyrQuadras" /><i class="dot dot--poly"></i>QUADRAS</label>
           <label title="Lotes do cadastro oficial da Prefeitura de Goiânia — baixa o recorte visível (zoom 16+)"><input type="checkbox" id="lyrLotes" /><i class="dot dot--navy"></i>LOTES</label>
+          <label title="Contornos dos terrenos cadastrados no Portal da Inteligência — respeita os filtros ativos"><input type="checkbox" id="lyrPortal" /><i class="dot" style="background:#1B9E77"></i>PORTAL</label>
           <label><input type="checkbox" id="lyrBairros" /><i class="dot" style="background:linear-gradient(45deg,#3A5AA0,#1B9E77,#E6AB02);border-radius:2px"></i>BAIRROS</label>
           <label><input type="checkbox" id="lyrSat" /><i class="dot" style="background:linear-gradient(135deg,#26443B,#7A8F5C);border-radius:2px"></i>SATÉLITE</label>
           <button type="button" class="pd-toggle mono" id="pdToggle" aria-expanded="false" title="Camadas do Plano Diretor de Goiânia 2022">PLANO DIRETOR <i>▾</i></button>
@@ -403,11 +404,12 @@
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
 </div><!-- dashboardRoot: só é exibido depois da validação SG -->
-<script type="text/plain" data-sg-src="data/dados_of.js?v=20261028-2345"></script>
-<script type="text/plain" data-sg-src="data/mapa_of.js?v=20261028-2345"></script>
-<script type="text/plain" data-sg-src="data/bairros_of.js?v=20261028-2345"></script>
+<script type="text/plain" data-sg-src="data/dados_of.js?v=20261029-0045"></script>
+<script type="text/plain" data-sg-src="data/mapa_of.js?v=20261029-0045"></script>
+<script type="text/plain" data-sg-src="data/bairros_of.js?v=20261029-0045"></script>
+<script type="text/plain" data-sg-src="data/portal_coordenadas.js?v=20261029-0045"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
-<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261028-2345"></script>
+<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261029-0045"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
@@ -415,7 +417,7 @@
 <script src="js/vendor/polygon-clipping-0.15.7.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script type="text/plain" data-sg-src="js/app.js?v=20261028-2345"></script>
-<script src="js/security-gate.js?v=20261028-2345"></script>
+<script type="text/plain" data-sg-src="js/app.js?v=20261029-0045"></script>
+<script src="js/security-gate.js?v=20261029-0045"></script>
 </body>
 </html>

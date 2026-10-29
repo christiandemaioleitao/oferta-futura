@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (!['GET', 'HEAD'].includes(req.method)) return res.status(405).json({ error: 'Use GET.' });
   const file = req.query?.file;
   const schema = file === 'sintese_schema.json';
-  if (typeof file !== 'string' || (!schema && !/^(?:(?:dados_of|mapa_of|bairros_of|plano_diretor)\.js|atualizacao\.json|plano_diretor\/[a-z0-9-]+\.json)$/.test(file))) {
+  if (typeof file !== 'string' || (!schema && !/^(?:(?:dados_of|mapa_of|bairros_of|plano_diretor|portal_coordenadas)\.js|atualizacao\.json|plano_diretor\/[a-z0-9-]+\.json)$/.test(file))) {
     return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
   try {

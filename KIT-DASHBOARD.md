@@ -1440,7 +1440,16 @@ Tabelas desenhadas por `innerHTML` religam `ligarOrdenacao` + `ligarLarguras` de
 
 ---
 
-## 11. Checklist de montagem
+## 11. Camada PORTAL no mapa (coordenadas do Portal da Inteligência)
+
+`data/portal_coordenadas.js` é um **snapshot manual** (`window.OF_PORTAL_COORDS` = `[idPortal, [[lat,lng],...]]`) dos vértices cadastrados na seção "Coordenadas" de cada empreendimento do Portal da Inteligência — não vem do pipeline (o pipeline fala com o SQL Server; o portal precisa de login próprio). Fluxo de atualização: exportar os vértices do portal (login BOT1-DS) e regerar o arquivo.
+
+- O front casa pelo `idPortal` com os registros do dashboard (`empreendimentos` + `semPrevisao`); registro sem correspondência não desenha.
+- Camada `PORTAL` (checkbox no seletor do mapa, nasce desligada): contornos em verde-teal, sempre **no recorte dos filtros ativos** — sem filtro, mostra todos; mesma regra das camadas KMZ (`anyFilterActive` + ids de `filtered` + `semDataFiltrados`).
+- O arquivo é servido pela API protegida: o nome precisa estar na whitelist de `api/secure-data.js`.
+- Portal grava vértices com **vírgula decimal** (binder pt-BR) e rejeita o vértice de fechamento duplicado — já normalizado no snapshot (ponto → vírgula invertida ao exportar; dedupe do último = primeiro).
+
+## 12. Checklist de montagem
 
 Ao criar um dashboard novo:
 
@@ -1462,7 +1471,7 @@ Ao criar um dashboard novo:
 
 ---
 
-## 12. Princípios que valem mais que o código
+## 13. Princípios que valem mais que o código
 
 Cinco coisas aprendidas no Oferta Futura, custando tempo real:
 

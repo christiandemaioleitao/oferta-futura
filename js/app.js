@@ -419,6 +419,7 @@ function visibleKmzFeatures() {
 
 /* ---------- mapa ---------- */
 let map, empLayer, terrenoLayer, pontoLayer, bairroLayer, baseTiles, satTiles;
+let portalLayer, portalRenderer = null;
 const empMarkers = {}; // id -> L.circleMarker (p/ localizar pelo clique na tabela)
 function initMap() {
   map = L.map('map', { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false }).setView([-16.68, -49.26], 12);
@@ -437,6 +438,7 @@ function initMap() {
   pontoLayer = L.layerGroup();
   bairroLayer = L.layerGroup();
   semDataLayer = L.layerGroup();
+  portalLayer = L.layerGroup();
   // com os sem previsão embutidos no OF_DATA a camada nasce ligada (e filtrável)
   if (semDataOn) { map.addLayer(semDataLayer); const c = $('#lyrSemData'); if (c) c.checked = true; }
   renderBairros();
@@ -451,6 +453,7 @@ function initMap() {
     linkKmzFeatures(); // com os sem-data no jogo, terrenos do KMZ deles ganham vínculo por nome
     renderSemDataLayer();
     renderKmzLayers();
+    renderPortalLayer();
     renderRadar();
   };
   $('#lyrTerrenos').onchange = e => e.target.checked ? map.addLayer(terrenoLayer) : map.removeLayer(terrenoLayer);
@@ -543,10 +546,32 @@ function renderKmzLayers() {
     }
   });
 }
+/* ---------- coordenadas do Portal da Inteligência ----------
+   Snapshot em data/portal_coordenadas.js ([idPortal, [[lat,lng],...]]). Camada
+   opcional: contornos dos terrenos cadastrados no portal, sempre no recorte dos
+   filtros ativos — mesma regra do KMZ: sem filtro ativo, mostra todos. */
+const portalCoordsVisiveis = (coords, ids, filterOn) =>
+  (coords || []).filter(r => !filterOn || ids.has(String(r[0])));
+function renderPortalLayer() {
+  if (!portalLayer) return;
+  portalLayer.clearLayers();
+  const ids = new Set(filtered.map(e => String(e.id)));
+  semDataFiltrados().forEach(e => ids.add(String(e.id)));
+  const filterOn = anyFilterActive();
+  const porId = new Map(allEmps().map(e => [String(e.id), e]));
+  portalRenderer = portalRenderer || L.canvas();
+  portalCoordsVisiveis(window.OF_PORTAL_COORDS, ids, filterOn).forEach(([id, verts]) => {
+    const emp = porId.get(String(id));
+    L.polygon(verts, { renderer: portalRenderer, color: '#1B9E77', weight: 1.8, fillColor: '#1B9E77', fillOpacity: .22 })
+      .bindPopup(`<div class="map-pop"><b>${escapeHtml(emp ? emp.empreendimento : 'Terreno #' + id)}</b><span class="mono">${emp ? escapeHtml(emp.bairro || '') + ' · ' : ''}COORDENADAS · PORTAL DA INTELIGÊNCIA</span>${emp ? `<button onclick="window.openFichaById('${emp.id}')">VER FICHA COMPLETA</button>` : ''}</div>`)
+      .addTo(portalLayer);
+  });
+}
 function renderMap() {
   if (!map) return;
   updateBairroLayer();
   renderKmzLayers();
+  renderPortalLayer();
   empLayer.clearLayers();
   const pts = [];
   filtered.forEach(e => {
@@ -847,6 +872,10 @@ function initCadastroGyn() {
   };
   $('#lyrQuadras').onchange = ligar('quadra', quadraLayer);
   $('#lyrLotes').onchange = ligar('lote', loteLayer);
+  $('#lyrPortal').onchange = e => {
+    if (e.target.checked) { renderPortalLayer(); map.addLayer(portalLayer); }
+    else map.removeLayer(portalLayer);
+  };
   map.on('moveend', () => {
     [['quadra', quadraLayer], ['lote', loteLayer]].forEach(([tipo, layer]) => {
       if (!map.hasLayer(layer)) return;
