@@ -258,7 +258,12 @@ def _aplicar_curva_cohort(emps, cohort, mes_base, mes_fim):
     """Reescreve a série mensal dos LANÇAMENTOS PREVISTOS (dtLancamento >= data
     base) pela curva de absorção do bucket de tipologia, no lugar do desenho cru
     da síntese. Unidades de bucket '0Q' (comercial/sem tipologia) ficam constantes
-    — não há curva de absorção para elas. Produto sem tipologias não é tocado."""
+    — não há curva de absorção para elas. Produto sem tipologias não é tocado.
+
+    Ancoragem na síntese: meses ATÉ a data base usam o disp real publicado pela
+    síntese (já desconta as vendas do próprio mês do lançamento — somar 100% das
+    unidades no mês 0 inflava o estoque do mês base); a curva de cohort entra
+    estritamente DEPOIS da data base."""
     if not cohort or not mes_base or not mes_fim:
         return 0
     alterados = 0
@@ -267,6 +272,7 @@ def _aplicar_curva_cohort(emps, cohort, mes_base, mes_fim):
         tips = e.get('tipologias') or []
         if not lanc or lanc < mes_base or not tips:
             continue
+        original = {x['m']: x for x in e.get('mensal') or []}
         baldes, baldes_rotulos = {}, {}
         for t in tips:
             b = _bucket_tipologia(t.get('tratada'))
@@ -304,7 +310,10 @@ def _aplicar_curva_cohort(emps, cohort, mes_base, mes_fim):
                 tip[qt] += d
                 fx[f] += d
                 tf[f'{qt}|{f}'] += d
-            if disp > 0:
+            if m <= mes_base and m in original:
+                # mês da data base (ou anterior): vale o dado real da síntese
+                nova.append(original[m])
+            elif disp > 0:
                 nova.append({'m': m, 'disp': round(disp, 1), 'vend': 0, 'distr': 0,
                              'tip': {k: round(x, 1) for k, x in sorted(tip.items()) if x},
                              'fx': {k: round(x, 1) for k, x in sorted(fx.items()) if x},
