@@ -118,7 +118,7 @@ const FAIXAS = [
   { id: 'f8', label: '290 – 350 m²', min: 290, max: 350 },
   { id: 'f9', label: '350 m² ou mais', min: 350, max: 1e9 },
 ];
-const state = { from: '', to: '', empreendimento: new Set(), macrozona: new Set(), bairro: new Set(), incorporadora: new Set(), tipo: new Set(), tipologia: new Set(), faixa: new Set() };
+const state = { from: '', to: '', empreendimento: new Set(), macrozona: new Set(), bairro: new Set(), incorporadora: new Set(), tipo: new Set(), tipologia: new Set(), faixa: new Set(), mcmv: new Set() };
 
 function empFaixas(e) {
   const out = new Set();
@@ -138,6 +138,7 @@ function empMatches(e, comPeriodo = true) {
   if (state.tipo.size && !state.tipo.has(e.tipo)) return false;
   if (state.tipologia.size && !(e.tipologias || []).some(t => state.tipologia.has(String(t.tratada != null ? t.tratada : t.tipologia)))) return false;
   if (state.faixa.size) { const fs = empFaixas(e); if (![...state.faixa].some(f => fs.has(f))) return false; }
+  if (state.mcmv.size && !state.mcmv.has(e.mcmv ? 'SIM' : 'NAO')) return false;
   return true;
 }
 const mzLabel = mz => mz == null ? 'SEM MACROZONA' : 'MZ ' + String(mz).replace(/\.0$/, '');
@@ -214,6 +215,7 @@ function uniqueVals(fn) {
 function buildFilters() {
   buildMultiselect('empreendimento', uniqueVals(e => e.empreendimento));
   buildMultiselect('macrozona', uniqueVals(e => mzLabel(e.macrozona)));
+  buildMultiselect('mcmv', [{ id: 'SIM', label: 'SIM' }, { id: 'NAO', label: 'NÃO' }]);
   buildMultiselect('bairro', uniqueVals(e => e.bairro));
   buildMultiselect('incorporadora', uniqueVals(e => e.incorporadora));
   /* padrão editorial: todos os tipos selecionados, exceto LOTEAMENTO — o dashboard
@@ -230,7 +232,7 @@ function buildFilters() {
 function filtersSummaryText() {
   const parts = [];
   if (state.from || state.to) parts.push(`LANÇAMENTO ${state.from ? ymLabel(state.from) : '…'} → ${state.to ? ymLabel(state.to) : '…'}`);
-  const names = { empreendimento: 'EMPREENDIMENTO', macrozona: 'MACROZONA', bairro: 'BAIRRO', incorporadora: 'INCORPORADORA', tipo: 'TIPO', tipologia: 'TIPOLOGIA', faixa: 'FAIXA M²' };
+  const names = { empreendimento: 'EMPREENDIMENTO', macrozona: 'MACROZONA', bairro: 'BAIRRO', incorporadora: 'INCORPORADORA', tipo: 'TIPO', tipologia: 'TIPOLOGIA', faixa: 'FAIXA M²', mcmv: 'MCMV' };
   Object.entries(names).forEach(([k, label]) => {
     if (state[k].size) {
       const vals = [...state[k]].map(v => k === 'faixa' ? (FAIXAS.find(f => f.id === v)?.label || v) : v);
@@ -1265,7 +1267,7 @@ let mercadoEmps = (window.OF_DATA && OF_DATA.mercado) || [];
    o mercado inteiro, que é justamente o que a curva precisa mostrar. Os cortes de
    bairro, incorporadora, tipo, tipologia, faixa e macrozona valem normalmente. */
 const mercadoFiltrado = () => mercadoEmps.filter(e => empMatches(e, false));
-const temFiltroEntidade = () => ['empreendimento', 'macrozona', 'bairro', 'incorporadora', 'tipo', 'tipologia', 'faixa'].some(k => state[k].size);
+const temFiltroEntidade = () => ['empreendimento', 'macrozona', 'bairro', 'incorporadora', 'tipo', 'tipologia', 'faixa', 'mcmv'].some(k => state[k].size);
 const SUB_MODO = { month: '', quarter: ' · Tri = estoque no fechamento do trimestre',
   year: ' · Ano = estoque no fechamento do ano', ltm: ' · LTM = média móvel de 12 meses' };
 /* no modo mês o ponto é o próprio mês; nos outros o tooltip precisa dizer que mês
