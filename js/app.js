@@ -2434,6 +2434,25 @@ $('#filtersClose').onclick = () => setFiltrosOpen(false);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !filtersPanel.hidden) setFiltrosOpen(false); });
 
 /* ---------- limpar filtros ---------- */
+/* olho do campo de senha administrativa (Dados do Portal): alterna texto/senha */
+$('#portalSenhaOlho').onclick = () => {
+  const campo = $('#portalSenha'), olho = $('#portalSenhaOlho');
+  const mostrar = campo.type === 'password';
+  campo.type = mostrar ? 'text' : 'password';
+  olho.setAttribute('aria-pressed', String(mostrar));
+  olho.setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+  olho.querySelector('.pwd-eye__slash')?.remove();
+  if (!mostrar) {
+    const slash = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    slash.setAttribute('x1', '4'); slash.setAttribute('y1', '4');
+    slash.setAttribute('x2', '20'); slash.setAttribute('y2', '20');
+    slash.setAttribute('class', 'pwd-eye__slash');
+    slash.setAttribute('stroke', 'currentColor'); slash.setAttribute('stroke-width', '1.7');
+    slash.setAttribute('stroke-linecap', 'round');
+    olho.querySelector('svg').appendChild(slash);
+  }
+};
+
 $('#btnClearFilters').onclick = () => {
   state.from = state.to = '';
   $('#fltFrom').value = $('#fltTo').value = '';

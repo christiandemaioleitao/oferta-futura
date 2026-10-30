@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261030-2110" />
+<link rel="stylesheet" href="css/style.css?v=20261030-2130" />
 </head>
 <body>
 <main class="sg-gate" id="sgGate">
@@ -374,7 +374,12 @@
     <div class="settings-row settings-row--btn"><span><b>Dados do Portal</b><small>Atualizar o dashboard com o Portal da Inteligência</small></span><button class="settings-action" id="atualizarPortalBtn" type="button" aria-expanded="false" aria-controls="atualizarPortalPanel">Atualizar</button></div>
     <form class="upload-sintese" id="atualizarPortalPanel" hidden>
       <label for="portalSenha">Senha administrativa</label>
-      <input class="settings-month upload-senha" id="portalSenha" type="password" placeholder="Mesma senha da síntese" autocomplete="off" required />
+      <div class="pwd-shell">
+        <input class="settings-month upload-senha" id="portalSenha" type="password" placeholder="Mesma senha da síntese" autocomplete="off" required />
+        <button class="pwd-eye" id="portalSenhaOlho" type="button" title="Mostrar/ocultar senha" aria-label="Mostrar senha" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.7"/></svg>
+        </button>
+      </div>
       <button class="settings-action" id="portalIniciar" type="submit">Iniciar atualização</button>
       <div class="upload-status mono" id="portalStatus" role="status" aria-live="polite"></div>
     </form>
@@ -424,12 +429,12 @@
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
 </div><!-- dashboardRoot: só é exibido depois da validação SG -->
-<script type="text/plain" data-sg-src="data/dados_of.js?v=20261030-2110"></script>
-<script type="text/plain" data-sg-src="data/mapa_of.js?v=20261030-2110"></script>
-<script type="text/plain" data-sg-src="data/bairros_of.js?v=20261030-2110"></script>
-<script type="text/plain" data-sg-src="data/portal_coordenadas.js?v=20261030-2110"></script>
+<script type="text/plain" data-sg-src="data/dados_of.js?v=20261030-2130"></script>
+<script type="text/plain" data-sg-src="data/mapa_of.js?v=20261030-2130"></script>
+<script type="text/plain" data-sg-src="data/bairros_of.js?v=20261030-2130"></script>
+<script type="text/plain" data-sg-src="data/portal_coordenadas.js?v=20261030-2130"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
-<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261030-2110"></script>
+<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261030-2130"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
@@ -437,7 +442,7 @@
 <script src="js/vendor/polygon-clipping-0.15.7.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script type="text/plain" data-sg-src="js/app.js?v=20261030-2110"></script>
-<script src="js/security-gate.js?v=20261030-2110"></script>
+<script type="text/plain" data-sg-src="js/app.js?v=20261030-2130"></script>
+<script src="js/security-gate.js?v=20261030-2130"></script>
 </body>
 </html>

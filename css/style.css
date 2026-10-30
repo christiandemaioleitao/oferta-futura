@@ -515,3 +515,13 @@ body.has-expanded{overflow:hidden}
 .pdf-leg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px}
 .pdf-leg__i{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#1a1a1a}
 .pdf-leg__i i{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E30A12;color:#fff;font-style:normal;font-size:11px;font-weight:700;flex:0 0 auto}
+
+/* olho de visualizar senha (Dados do Portal) */
+.pwd-shell{position:relative;display:flex;align-items:center}
+.pwd-shell .upload-senha{width:100%;padding-right:34px}
+.pwd-eye{position:absolute;right:6px;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--gray-600);cursor:pointer;transition:color .15s}
+.pwd-eye:hover{color:var(--navy)}
+.pwd-eye svg{width:15px;height:15px}
+.pwd-eye[aria-pressed="true"]{color:var(--navy)}
+.pwd-eye[aria-pressed="true"] .pwd-eye__slash{display:block}
+.pwd-eye__slash{display:none}
