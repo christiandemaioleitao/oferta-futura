@@ -1281,6 +1281,7 @@ function atualizarSubEstoque() {
 function renderCharts() {
   const ref = refMonth;
   const legendCfg = { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, padding: 12 } };
+  const semLegenda = { display: false };
   atualizarSubEstoque();
   /* base do estoque = mercado (síntese) + projeção, os dois no recorte dos filtros.
      O eixo vai só até onde a síntese foi projetada (data base +18 meses): a projeção
@@ -1309,7 +1310,7 @@ function renderCharts() {
       data: { labels: pontos.map(p => periodLabelOF(p.k, periodoModo)), datasets: dsets },
       plugins: [dataLabelsPlugin],
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendCfg, tooltip: { callbacks: {
+        plugins: { legend: semLegenda, tooltip: { callbacks: {
           label: c => ` ${c.dataset.label} · ${fmtInt(c.parsed.y)} un.${pontos[c.dataIndex].m === ref ? ' · mês de referência' : ''}`,
           afterBody: items => items.length ? ['', ...rotuloPonto(pontos[items[0].dataIndex]),
             ...dispTooltipList(pontos[items[0].dataIndex].m, filtered.concat(mercEmps))] : [],
@@ -1341,7 +1342,7 @@ function renderCharts() {
         pointBorderWidth: pontos.map((p, i) => i === refIdx ? 2 : 1),
       }]},
       plugins: [dataLabelsPlugin],
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendCfg, tooltip: { callbacks: {
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: semLegenda, tooltip: { callbacks: {
         label: c => ' ' + fmtInt(c.parsed.y) + ' unidades' + (pontos[c.dataIndex].m === ref ? ' · mês de referência' : ''),
         afterBody: items => {
           if (!items.length) return [];
