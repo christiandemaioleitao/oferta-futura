@@ -1000,7 +1000,7 @@ function irParaCoordenada(p) {
 }
 
 /* ---------- gráficos ---------- */
-let chartDisp, chartLanc, chartLancInc;
+let chartDisp, chartLanc;
 Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 Chart.defaults.font.size = 10;
 Chart.defaults.color = GRAY;
@@ -1388,61 +1388,7 @@ function renderCharts() {
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
     });
   }
-  renderLancPorIncorporadora();
 }
-
-/* ---------- lançamentos por incorporadora (gráfico de barras) ----------
-   Cada barra é uma incorporadora; a altura é o NÚMERO de empreendimentos lançados
-   dentro do período filtrado (período de lançamento + cortes de entidade do topo).
-   A tooltip lista os empreendimentos de cada incorporadora. Dados = OF_DATA
-   (empreendimentos do Portal da Inteligência, com incorporadora e dtLancamento). */
-const LANC_INC_MAX = 18;
-function lancamentosPorIncorporadora() {
-  const acc = new Map();
-  filtered.forEach(e => {
-    const m = (e.dtLancamento || '').slice(0, 7);
-    if (!m || !noPeriodo(m)) return;
-    const k = e.incorporadora || '—';
-    (acc.get(k) || acc.set(k, []).get(k)).push(e);
-  });
-  return [...acc.entries()]
-    .map(([inc, emps]) => ({ inc, n: emps.length, emps: emps.sort((a, b) => (b.totalUnidades || 0) - (a.totalUnidades || 0)) }))
-    .sort((a, b) => b.n - a.n || a.inc.localeCompare(b.inc));
-}
-function renderLancPorIncorporadora() {
-  const dados = lancamentosPorIncorporadora();
-  const info = $('#lancIncInfo');
-  if (info) info.textContent = dados.length ? `${dados.reduce((s, d) => s + d.n, 0)} EMPREENDIMENTOS LANÇADOS NO PERÍODO` : '';
-  if (chartLancInc) chartLancInc.destroy();
-  let rows = dados;
-  let outras = null;
-  if (dados.length > LANC_INC_MAX) {
-    rows = dados.slice(0, LANC_INC_MAX);
-    const resto = dados.slice(LANC_INC_MAX);
-    outras = { inc: `OUTRAS (${resto.length})`, n: resto.reduce((s, d) => s + d.n, 0), emps: resto.flatMap(d => d.emps) };
-  }
-  if (outras) rows = rows.concat([outras]);
-  const labels = rows.map(r => r.inc.length > 28 ? r.inc.slice(0, 27) + '…' : r.inc);
-  chartLancInc = new Chart($('#chartLancInc'), {
-    type: 'bar',
-    data: { labels, datasets: [{ data: rows.map(r => r.n), backgroundColor: NAVY, borderRadius: 3, maxBarThickness: 30 }] },
-    plugins: [dataLabelsPlugin],
-    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-      plugins: { legend: { display: false }, tooltip: { callbacks: {
-        label: c => ` ${fmtInt(c.parsed.x)} empreendimento${c.parsed.x === 1 ? '' : 's'} lançado${c.parsed.x === 1 ? '' : 's'}`,
-        afterBody: items => {
-          if (!items.length) return [];
-          const r = rows[items[0].dataIndex];
-          const lines = r.emps.slice(0, TT_MAX).map(e => `${e.empreendimento} · ${(e.dtLancamento || '').slice(0, 7)}`);
-          if (r.emps.length > TT_MAX) lines.push(`… +${r.emps.length - TT_MAX} empreendimentos`);
-          return ['', ...lines];
-        },
-      } } },
-      scales: { x: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v), precision: 0 } }, y: { grid: { display: false } } }
-    }
-  });
-}
-
 /* ============================================================
    ORDENAÇÃO DAS TABELAS
    Coluna de texto começa em A→Z; coluna numérica começa do maior

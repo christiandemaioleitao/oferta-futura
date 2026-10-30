@@ -510,8 +510,6 @@ body.has-expanded{overflow:hidden}
 .duo>.card.radar--lado{display:flex;flex-direction:column}
 .duo>.card.radar--lado>.radar__scroll{flex:1 1 auto}
 
-/* gráfico lançamentos por incorporadora */
-.chart-box--inc{height:420px}
 
 /* legenda do mapa numerado na apresentação PDF */
 .pdf-leg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px}
