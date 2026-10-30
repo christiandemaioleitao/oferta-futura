@@ -495,7 +495,36 @@ function initMap() {
     if (e.target.checked) { map.removeLayer(baseTiles); satTiles.addTo(map); satLabels.addTo(map); }
     else { map.removeLayer(satTiles); map.removeLayer(satLabels); baseTiles.addTo(map); }
   };
+  initSatFallback();
   renderKmzLayers();
+}
+/* ---------- satélite com fallback automático (definido fora do initMap) ----------
+   O Esri World_Imagery (server.arcgisonline.com) devolve, em rajadas de uso alto,
+   um tile de ERRO com o texto "API key required" em vez de imagem. Nada quebra no
+   Leaflet — por isso a detecção é pelo evento tileerror: após N erros seguidos
+   trocamos a URL do layer de imagens pela do host alternativo (services.) e, se
+   persistir, pelo provedor de reserva. Os rótulos Carto continuam os mesmos. */
+const SAT_FONTES = [
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+];
+let satFonteIdx = 0, satErros = 0;
+function initSatFallback() {
+  satTiles.on('tileerror', () => {
+    satErros++;
+    if (satErros < 8 || satFonteIdx >= SAT_FONTES.length - 1) return;
+    satFonteIdx++; satErros = 0;
+    const subs = satFonteIdx === 2 ? '0123' : 'abc';
+    const nova = L.tileLayer(SAT_FONTES[satFonteIdx], {
+      attribution: satFonteIdx === 2 ? '&copy; Google' : '&copy; Esri · Maxar, Earthstar Geographics',
+      crossOrigin: true, maxZoom: 19, subdomains: subs,
+    });
+    map.removeLayer(satTiles);
+    if (map.hasLayer(satLabels)) { map.removeLayer(satLabels); nova.addTo(map); satLabels.addTo(map); }
+    else nova.addTo(map);
+    satTiles = nova;
+  });
 }
 /* nomes de bairro: dados usam "SETOR SUL"/"JARDIM GOIAS", KMZ usa "SUL"/"GOIAS" — normaliza os dois lados */
 const BAIRRO_STOP = /^(SETOR|SET|JARDIM|JD|VILA|VL|PARQUE|PQ|RESIDENCIAL|RES|CONJUNTO|CONJ|CHACARA|CHACARAS|BAIRRO|FAZENDA|FAZ|LOTEAMENTO|LOT|CIDADE|DA|DO|DAS|DOS|DE)\s+/;
@@ -971,7 +1000,7 @@ function irParaCoordenada(p) {
 }
 
 /* ---------- gráficos ---------- */
-let chartDisp, chartLanc;
+let chartDisp, chartLanc, chartLancInc;
 Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 Chart.defaults.font.size = 10;
 Chart.defaults.color = GRAY;
@@ -1359,6 +1388,59 @@ function renderCharts() {
         scales: { y: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v) } }, x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 16 } } } }
     });
   }
+  renderLancPorIncorporadora();
+}
+
+/* ---------- lançamentos por incorporadora (gráfico de barras) ----------
+   Cada barra é uma incorporadora; a altura é o NÚMERO de empreendimentos lançados
+   dentro do período filtrado (período de lançamento + cortes de entidade do topo).
+   A tooltip lista os empreendimentos de cada incorporadora. Dados = OF_DATA
+   (empreendimentos do Portal da Inteligência, com incorporadora e dtLancamento). */
+const LANC_INC_MAX = 18;
+function lancamentosPorIncorporadora() {
+  const acc = new Map();
+  filtered.forEach(e => {
+    const m = (e.dtLancamento || '').slice(0, 7);
+    if (!m || !noPeriodo(m)) return;
+    const k = e.incorporadora || '—';
+    (acc.get(k) || acc.set(k, []).get(k)).push(e);
+  });
+  return [...acc.entries()]
+    .map(([inc, emps]) => ({ inc, n: emps.length, emps: emps.sort((a, b) => (b.totalUnidades || 0) - (a.totalUnidades || 0)) }))
+    .sort((a, b) => b.n - a.n || a.inc.localeCompare(b.inc));
+}
+function renderLancPorIncorporadora() {
+  const dados = lancamentosPorIncorporadora();
+  const info = $('#lancIncInfo');
+  if (info) info.textContent = dados.length ? `${dados.reduce((s, d) => s + d.n, 0)} EMPREENDIMENTOS LANÇADOS NO PERÍODO` : '';
+  if (chartLancInc) chartLancInc.destroy();
+  let rows = dados;
+  let outras = null;
+  if (dados.length > LANC_INC_MAX) {
+    rows = dados.slice(0, LANC_INC_MAX);
+    const resto = dados.slice(LANC_INC_MAX);
+    outras = { inc: `OUTRAS (${resto.length})`, n: resto.reduce((s, d) => s + d.n, 0), emps: resto.flatMap(d => d.emps) };
+  }
+  if (outras) rows = rows.concat([outras]);
+  const labels = rows.map(r => r.inc.length > 28 ? r.inc.slice(0, 27) + '…' : r.inc);
+  chartLancInc = new Chart($('#chartLancInc'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: rows.map(r => r.n), backgroundColor: NAVY, borderRadius: 3, maxBarThickness: 30 }] },
+    plugins: [dataLabelsPlugin],
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: { callbacks: {
+        label: c => ` ${fmtInt(c.parsed.x)} empreendimento${c.parsed.x === 1 ? '' : 's'} lançado${c.parsed.x === 1 ? '' : 's'}`,
+        afterBody: items => {
+          if (!items.length) return [];
+          const r = rows[items[0].dataIndex];
+          const lines = r.emps.slice(0, TT_MAX).map(e => `${e.empreendimento} · ${(e.dtLancamento || '').slice(0, 7)}`);
+          if (r.emps.length > TT_MAX) lines.push(`… +${r.emps.length - TT_MAX} empreendimentos`);
+          return ['', ...lines];
+        },
+      } } },
+      scales: { x: { grid: { color: HAIR }, ticks: { callback: v => fmtInt(v), precision: 0 } }, y: { grid: { display: false } } }
+    }
+  });
 }
 
 /* ============================================================
@@ -2351,6 +2433,13 @@ async function exportKmz() {
   if (st) st.textContent = `KMZ EXPORTADO · ${pmEmp.length} EMPREENDIMENTOS · ${pmPoly.length} TERRENOS · ${pmPoint.length} LOCALIZAÇÕES`;
 }
 $('#btnExportKmz').onclick = exportKmz;
+
+/* ---------- botão flutuante de filtros ---------- */
+const filtersFab = $('#filtersFab'), filtersPanel = $('#filtersPanel');
+const setFiltrosOpen = open => { filtersPanel.hidden = !open; filtersFab.setAttribute('aria-expanded', String(open)); };
+filtersFab.onclick = () => setFiltrosOpen(filtersPanel.hidden);
+$('#filtersClose').onclick = () => setFiltrosOpen(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !filtersPanel.hidden) setFiltrosOpen(false); });
 
 /* ---------- limpar filtros ---------- */
 $('#btnClearFilters').onclick = () => {
