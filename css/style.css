@@ -509,3 +509,8 @@ body.has-expanded{overflow:hidden}
 
 /* gráfico lançamentos por incorporadora */
 .chart-box--inc{height:420px}
+
+/* legenda do mapa numerado na apresentação PDF */
+.pdf-leg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px}
+.pdf-leg__i{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#1a1a1a}
+.pdf-leg__i i{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#E30A12;color:#fff;font-style:normal;font-size:11px;font-weight:700;flex:0 0 auto}

@@ -2058,7 +2058,7 @@ function loadTile(url) {
 /* Proporção da caixa do slide (1015 × 560 px de área útil): capturar nessa mesma
    proporção evita que o object-fit corte pontos das bordas. */
 const MAPA_W = 2030, MAPA_H = 1120;
-async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
+async function captureMapFor(emps, W = MAPA_W, H = MAPA_H, numerar = false) {
   const ids = new Set(emps.map(e => e.id));
   const polys = (MAPA.features || []).filter(f => f.geometry.type === 'Polygon' && ids.has(f.properties._empId));
   const pts = emps.filter(e => e.lat != null && e.lng != null);
@@ -2115,13 +2115,26 @@ async function captureMapFor(emps, W = MAPA_W, H = MAPA_H) {
     ctx.lineWidth = 3 / s;                       // espessura constante na imagem final
     ctx.fill(); ctx.stroke();
   });
-  // empreendimentos (marcadores vermelhos)
+  // empreendimentos (marcadores vermelhos; com `numerar`, cada um recebe um número
+  // dentro do círculo para casar com a legenda no rodapé do slide)
+  const ordem = numerar ? deckOrdenar(emps.filter(e => e.lat != null && e.lng != null), false) : null;
   pts.forEach(e => {
-    ctx.beginPath(); ctx.arc(lngToX(e.lng, z), latToY(e.lat, z), 11 / s, 0, Math.PI * 2);
+    const n = numerar ? ordem.indexOf(e) + 1 : 0;
+    ctx.beginPath(); ctx.arc(lngToX(e.lng, z), latToY(e.lat, z), (numerar ? 15 : 11) / s, 0, Math.PI * 2);
     ctx.fillStyle = RED; ctx.fill();
     ctx.lineWidth = 3.5 / s; ctx.strokeStyle = '#fff'; ctx.stroke();
+    if (n) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `700 ${17 / s}px IBM Plex Sans, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(n), lngToX(e.lng, z), latToY(e.lat, z) + 1 / s);
+    }
   });
   ctx.restore();
+  if (numerar) {
+    // a ordem numerada (p/ a legenda) sai com a imagem no fim da função
+    captureMapFor._ordem = [...ordem, ...deckOrdenar(emps.filter(e => e.lat == null || e.lng == null), false)];
+  }
   // atribuição
   ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W - 300, H - 32, 300, 32);
   ctx.fillStyle = '#566076'; ctx.font = '16px IBM Plex Sans, sans-serif';
@@ -2244,6 +2257,30 @@ async function exportDeck() {
         ${deckFoot(pageNo, periodo)}`;
       stage.appendChild(mapSlide);
       for (const c of b.cuts) {
+        /* mapa NUMERADO antes de cada corte de macrozona e de faixa de metragem:
+           cada empreendimento recebe um número em círculo vermelho no mapa e a
+           legenda no rodapé lista nome por número. Na macrozona, o título traz
+           também os bairros pertencentes a ela. */
+        if (b.num === '01' || b.num === '02') {
+          status.textContent = `CAPTURANDO MAPA — ${c.title.toUpperCase()}…`;
+          const lista = deckOrdenar(c.emps, c.semPrevisao);
+          const mapa = await captureMapFor(lista, MAPA_W, MAPA_H, true);
+          const imgC = mapa && mapa.img;
+          const ordem = (mapa && mapa.ordem) || [];
+          const bairrosMz = b.num === '01'
+            ? [...new Set(c.emps.map(e => e.bairro).filter(Boolean))].sort().join(', ')
+            : '';
+          const tituloC = b.num === '01' && bairrosMz ? `${c.title}: ${bairrosMz.toUpperCase()}` : c.title;
+          const legenda = ordem.map((e, i) => `<span class="pdf-leg__i"><i>${i + 1}</i>${escapeHtml(e.empreendimento)}</span>`).join('');
+          pageNo++;
+          const mapSlideC = document.createElement('div');
+          mapSlideC.className = 'pdf-page';
+          mapSlideC.innerHTML = `<div class="pdf-h"><span class="n">${b.num}</span><h2>${escapeHtml(tituloC)}<small style="display:block;font-family:var(--font-mono);font-weight:400;font-size:11px;letter-spacing:.14em;color:${GRAY};margin-top:6px">${escapeHtml(c.sub.toUpperCase())} · PERÍODO ${escapeHtml(periodo).toUpperCase()} · ${c.emps.length} NO CORTE</small></h2></div>
+            ${imgC ? `<img class="pdf-img" src="${imgC}" style="height:470px;object-fit:cover" />` : `<div style="height:470px;border:1px dashed ${HAIR};border-radius:10px;display:grid;place-items:center;color:${GRAY}" class="mono">MAPA INDISPONÍVEL</div>`}
+            ${legenda ? `<div class="pdf-leg">${legenda}</div>` : ''}
+            ${deckFoot(pageNo, periodo)}`;
+          stage.appendChild(mapSlideC);
+        }
         paginar(deckOrdenar(c.emps, c.semPrevisao), 11).forEach(p => {
           pageNo++;
           const s = document.createElement('div');
