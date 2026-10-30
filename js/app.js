@@ -292,11 +292,8 @@ function launchWindowLabel(emps) {
 function renderKPIs() {
   $('#kpiHeaderCount').textContent = filtered.length;
   $('#kpiHeaderWindow').textContent = launchWindowLabel(filtered);
-  $('#kpiCount').textContent = filtered.length;
   // mesma régua dos gráficos: com filtro de tipologia/faixa conta as unidades da quebra
-  $('#kpiUnits').textContent = fmtInt(filtered.reduce((s, e) => s + unidsLancadas(e), 0));
   const m = salesAverages(filtered);
-  $('#kpiAvgSales').textContent = m.mes == null ? '—' : fmtDec(m.mes, 1);
   $('#footUpdated').textContent = 'Atualizado em ' + (dateBR(DATA.geradoEm) || '—') + ' · Fonte: ' + (DATA.fonte || 'base importada');
 }
 
