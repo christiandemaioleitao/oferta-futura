@@ -49,7 +49,10 @@ jobs:
           SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           SQLSERVER_USER: ${{ secrets.SQLSERVER_USER }}
           SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
-          OF_DATA_BASE: ${{ github.event.inputs.data_base || '01/2026' }}
+          # fallback precisa ser o MESMO padrão do input acima e do pipeline_of.py
+          # ('06/2026'): rodando por schedule os inputs vêm vazios, e um fallback
+          # divergente trocou a data base do banco (of_meta) sem ninguém perceber
+          OF_DATA_BASE: ${{ github.event.inputs.data_base || '06/2026' }}
           FATOR_AJUSTE: ${{ github.event.inputs.fator_ajuste || '1.0' }}
           OF_MANTER_PARAMETROS: ${{ github.event.inputs.manter_parametros == 'true' && '1' || '0' }}
           # escape da guarda de sanidade; o agendamento nunca ignora a queda
