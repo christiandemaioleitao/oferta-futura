@@ -148,8 +148,9 @@ def _prox_mes(m):
 def _media_vendas_trailing(vendas, mes_ref, janela=6):
     """Vendas médias mensais do produto nos últimos `janela` meses até `mes_ref`.
 
-    vendas: lista ordenada de (m, unidades vendidas). Sem registro -> 0 (o estoque
-    do produto é carregado constante, nunca zerado de mentira).
+    vendas: lista ordenada de (m, unidades vendidas). Sem registro -> 0 — e aí o
+    chamador troca o decaimento pela performance média do mercado (regra de
+    1 unidade a cada 6 meses; ver _montar_mercado).
     """
     if not vendas:
         return 0.0
@@ -157,6 +158,162 @@ def _media_vendas_trailing(vendas, mes_ref, janela=6):
     if not recentes:
         return 0.0
     return sum(recentes) / len(recentes)
+
+
+def _frac_mensal_mercado(vendas_mercado, estoque_total, meses=6):
+    """Fração do estoque do MERCADO vendida por mês (performance média do mercado).
+
+    Vendido nos últimos `meses` meses ÷ (meses × estoque total da base). É a
+    performance média do mercado como um todo, que na base atual gira em torno de
+    35–40% ao ano (~3%/mês). Sem dados suficientes, cai no fallback de 37,5% a.a.
+    em decaimento composto (1 - 0.375**(1/12) ≈ 3,83%/mês)."""
+    vendidas = 0.0
+    for serie in (vendas_mercado or {}).values():
+        for _m, v in (serie or [])[-meses:]:
+            vendidas += v or 0
+    if estoque_total and estoque_total > 0 and vendidas > 0:
+        return min(vendidas / (meses * estoque_total), 1.0)
+    return 1 - 0.625 ** (1 / 12)
+
+
+def _bucket_tipologia(trat):
+    """Bucket da curva de absorção: 1Q, 2Q, 3Q e 4Q+ (4, 5, 6... quartos).
+    0/nulo = comercial ou sem informação — não participa das curvas."""
+    try:
+        tq = int(float(trat or 0))
+    except (TypeError, ValueError):
+        tq = 0
+    if tq <= 0:
+        return '0Q'
+    return f'{tq}Q' if tq < 4 else '4Q+'
+
+
+def _diferenca_meses(a, b):
+    """Quantos meses b está à frente de a (pode ser negativo). 'YYYY-MM'."""
+    return (int(b[:4]) - int(a[:4])) * 12 + (int(b[5:7]) - int(a[5:7]))
+
+
+def _cohort_performance(merc, vendas_mercado, mes_base, janela=36):
+    """Curvas de absorção por tipologia (1Q, 2Q, 3Q, 4Q+).
+
+    Janela de `janela` meses para trás a partir da data base: produtos LANÇADOS
+    nesse período, % das unidades vendidas nos primeiros 6, 12 e 18 meses de vida.
+    Bucket do produto = tipologia com mais unidades (a dominante). Devolve
+    {bucket: (p6, p12, p18)} — média simples entre produtos do bucket."""
+    por_bucket = {}
+    for (nome_k, _inc), r in (merc or {}).items():
+        dt = r.get('dtLancamento')
+        if not dt:
+            continue
+        lanc = dt[:7]
+        if not mes_base or lanc >= mes_base or _diferenca_meses(lanc, mes_base) > janela:
+            continue
+        vend = dict(vendas_mercado.get(nome_k) or [])
+        total = sum((t.get('unids') or 0) for t in (r.get('tips') or {}).values())
+        if total <= 0:
+            continue
+        dominante = max((r.get('tips') or {}).values(),
+                        key=lambda t: t.get('unids') or 0)
+        b = _bucket_tipologia(dominante.get('tratada'))
+        if b == '0Q':
+            continue
+        def pct(n_meses, _lanc=lanc, _vend=vend, _total=total):
+            s = sum(v for m, v in _vend.items()
+                    if 0 <= _diferenca_meses(_lanc, m) < n_meses)
+            return min(s / _total, 1.0)
+        por_bucket.setdefault(b, []).append((pct(6), pct(12), pct(18)))
+    out = {}
+    for b, lista in por_bucket.items():
+        n = len(lista)
+        out[b] = tuple(sum(x[i] for x in lista) / n for i in range(3))
+    return out
+
+
+def _pct_vendido_acumulado(cohort, bucket, vida):
+    """% vendido acumulado após `vida` meses de lançamento, pela curva do bucket.
+
+    Interpola linearmente entre as âncoras (0, p6, p12, p18). Depois de 18 meses,
+    segue o ritmo marginal do intervalo 12–18 até esgotar (teto de 100%)."""
+    p = cohort.get(bucket)
+    if not p:
+        # bucket sem curva: usa a média dos buckets disponíveis
+        vals = list(cohort.values())
+        if not vals:
+            return None
+        p = tuple(sum(v[i] for v in vals) / len(vals) for i in range(3))
+    p6, p12, p18 = p
+    if vida <= 0:
+        return 0.0
+    if vida >= 18:
+        ritmo = max((p18 - p12) / 6.0, 0.0)
+        return min(p18 + ritmo * (vida - 18), 1.0)
+    if vida <= 6:
+        return p6 * vida / 6.0
+    if vida <= 12:
+        return p6 + (p12 - p6) * (vida - 6) / 6.0
+    return p12 + (p18 - p12) * (vida - 12) / 6.0
+
+
+def _aplicar_curva_cohort(emps, cohort, mes_base, mes_fim):
+    """Reescreve a série mensal dos LANÇAMENTOS PREVISTOS (dtLancamento >= data
+    base) pela curva de absorção do bucket de tipologia, no lugar do desenho cru
+    da síntese. Unidades de bucket '0Q' (comercial/sem tipologia) ficam constantes
+    — não há curva de absorção para elas. Produto sem tipologias não é tocado."""
+    if not cohort or not mes_base or not mes_fim:
+        return 0
+    alterados = 0
+    for e in emps.values():
+        lanc = (e.get('dtLancamento') or '')[:7]
+        tips = e.get('tipologias') or []
+        if not lanc or lanc < mes_base or not tips:
+            continue
+        baldes, baldes_rotulos = {}, {}
+        for t in tips:
+            b = _bucket_tipologia(t.get('tratada'))
+            fx = faixa_de(t.get('area'))
+            try:
+                tq_int = int(float(t.get('tratada') or 0))
+            except (TypeError, ValueError):
+                tq_int = 0
+            baldes[(b, fx)] = baldes.get((b, fx), 0.0) + (t.get('unids') or 0)
+            baldes_rotulos[b] = tq_int
+        if not baldes:
+            continue
+        nova, m = [], lanc
+        while m <= mes_fim:
+            vida = _diferenca_meses(lanc, m)
+            disp = 0.0
+            tip, fx, tf = defaultdict(float), defaultdict(float), defaultdict(float)
+            for (b, f), u in baldes.items():
+                if u <= 0:
+                    continue
+                if b == '0Q':
+                    d = u                      # sem curva: disponível constante
+                else:
+                    pct = _pct_vendido_acumulado(cohort, b, vida)
+                    d = u * (1 - pct) if pct is not None else u
+                if d <= 0:
+                    continue
+                disp += d
+                # chaves das quebras no padrão do front: '0'..'4' ('4' cobre 4Q+)
+                try:
+                    tq_int = int(float(dict(baldes_rotulos).get(b, 4)))
+                except (TypeError, ValueError):
+                    tq_int = 4
+                qt = str(min(max(tq_int, 0), 4))
+                tip[qt] += d
+                fx[f] += d
+                tf[f'{qt}|{f}'] += d
+            if disp > 0:
+                nova.append({'m': m, 'disp': round(disp, 1), 'vend': 0, 'distr': 0,
+                             'tip': {k: round(x, 1) for k, x in sorted(tip.items()) if x},
+                             'fx': {k: round(x, 1) for k, x in sorted(fx.items()) if x},
+                             'tf': {k: round(x, 1) for k, x in sorted(tf.items()) if x}})
+            m = _prox_mes(m)
+        if nova:
+            e['mensal'] = nova
+            alterados += 1
+    return alterados
 
 
 def _montar_mercado(merc, emps, vendas_mercado=None):
@@ -189,6 +346,17 @@ def _montar_mercado(merc, emps, vendas_mercado=None):
     na_projecao = {_norm(e.get('empreendimento')) for e in emps.values()}
 
     out, dupes, meses_vistos = [], [], set()
+    # estoque total da base no último mês publicado — usado pela fração mensal
+    # do mercado (performance média). Calculado antes do loop, sobre todos os
+    # produtos que vão entrar no `out`.
+    estoque_total_base = 0.0
+    for (nome_k, _inc_k), r in sorted(merc.items()):
+        if _norm(r['empreendimento']) in na_projecao:
+            continue
+        lin0 = [(m, v) for m, v in sorted(r['mensal'].items())
+                if (mes_base is None or m >= mes_base) and v[0] > 0]
+        if lin0:
+            estoque_total_base += lin0[-1][1][0]
     for (nome_k, _inc_k), r in sorted(merc.items()):
         if nome_k in na_projecao:
             dupes.append(r['empreendimento'])
@@ -201,17 +369,27 @@ def _montar_mercado(merc, emps, vendas_mercado=None):
         # mercado despencaria (10,9 mil un em jun/26 -> 149 em jul/26). O estoque
         # remanescente continua existindo: levar a série adiante até o fim da
         # janela de projeção, decaindo pelo ritmo de vendas do próprio produto
-        # (média dos últimos 6 meses). Produto sem vendas registradas carrega o
-        # estoque constante — conservador, nunca zera de mentira.
+        # (média dos últimos 6 meses). Produto com ritmo irrelevante (menos de 1
+        # unidade a cada 6 meses) decai pela performance média do mercado.
         mes_ultimo, ult = linhas_mes[-1]
         taxa = _media_vendas_trailing(vendas_mercado.get(nome_k), mes_ultimo)
+        # Produto com ritmo de vendas irrelevante (menos de 1 unidade a cada 6 meses)
+        # não carrega o estoque constante: passa a decair pela performance média do
+        # MERCADO como um todo (~35–40% a.a. de vendas sobre o estoque).
+        if taxa < 1 / 6:
+            frac_mercado = _frac_mensal_mercado(vendas_mercado, estoque_total_base)
+        else:
+            frac_mercado = None
         if mes_fim and mes_ultimo < mes_fim:
             total_ult = ult[0]
             mix_tip, mix_fx, mix_tf = ult[1], ult[2], ult[3]
             estoque = total_ult
             m = _prox_mes(mes_ultimo)
             while m <= mes_fim and estoque > 0:
-                estoque = max(estoque - min(taxa, estoque), 0.0)
+                if frac_mercado is not None:
+                    estoque = max(estoque * (1 - frac_mercado), 0.0)
+                else:
+                    estoque = max(estoque - min(taxa, estoque), 0.0)
                 if estoque <= 0:
                     break
                 frac = estoque / total_ult
@@ -425,6 +603,16 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None, coordenadas=None):
         print('sem previsão:', len(sem_prev), 'empreendimentos (array semPrevisao)')
     vendas_mercado = {_norm(nome): sorted(venda.items())
                       for nome, venda in ((h['empreendimento'], h['vend']) for h in hist.values())}
+    vendas_mercado_dd = {_norm(nome): dict(serie) for nome, serie in vendas_mercado.items()}
+    meses_of = sorted({x['m'] for e in emps.values() for x in e.get('mensal') or []})
+    mes_base = meses_of[0] if meses_of else None
+    mes_fim = meses_of[-1] if meses_of else None
+    cohort = _cohort_performance(merc, vendas_mercado_dd, mes_base)
+    if cohort:
+        print('curvas de absorção por tipologia (cohort 36 meses):',
+              {b: tuple(round(x, 3) for x in v) for b, v in sorted(cohort.items())})
+    n_alt = _aplicar_curva_cohort(emps, cohort, mes_base, mes_fim)
+    print(f'lançamentos previstos com curva por tipologia: {n_alt}')
     mercado_emps = _montar_mercado(merc, emps, vendas_mercado)
     # mercadoMensal passa a derivar da série estendida (mesma janela e mesmos
     # números da curva com dimensões) — antes só ia até a data base e despencava.
