@@ -434,8 +434,12 @@ function initMap() {
      texto, em pane própria acima dos tiles e abaixo das sobreposições vetoriais */
   map.createPane('rotulosSat');
   map.getPane('rotulosSat').style.zIndex = 350;
-  satLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CARTO', crossOrigin: true, maxZoom: 19, pane: 'rotulosSat',
+  /* rótulos de ruas sobre o satélite: a camada de labels do Carto passou a exigir
+     API key e devolve tiles com o texto "API KEY REQUIRED" no lugar dos nomes
+     (por isso as ruas sumiram). O Esri Reference World_Boundaries_and_Places é
+     anônimo como o próprio World_Imagery e cobre o mesmo papel. */
+  satLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri', crossOrigin: true, maxZoom: 19, pane: 'rotulosSat',
   });
   map.createPane('planoDiretor');
   map.getPane('planoDiretor').style.zIndex = 370; // abaixo dos bairros e dos marcadores
