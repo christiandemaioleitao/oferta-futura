@@ -490,9 +490,12 @@ body.has-expanded{overflow:hidden}
 .pill--none{background:var(--paper-2);color:var(--gray-600)}
 
 /* ================= FILTROS FLUTUANTES (botão azul, canto superior esquerdo) ================= */
-.filters-fab-dock{position:fixed;top:20px;left:20px;z-index:1500}
-.filters-fab{width:60px;height:60px;border:0;border-radius:50%;background:#1668D9;color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 18px 42px rgba(22,104,217,.32),0 4px 10px rgba(22,104,217,.18);transition:transform .2s ease,background .2s ease}
-.filters-fab:hover{background:#0F4FAE;transform:translateY(-2px) scale(1.04)}
+/* dock fica fixo logo abaixo da linha vermelha do cabeçalho — o top exato é
+   calculado no app.js (header.offsetHeight + 8) porque a altura do cabeçalho
+   varia quando os KPIs quebram de linha */
+.filters-fab-dock{position:fixed;top:132px;left:20px;z-index:1500;transition:top .2s ease}
+.filters-fab{width:60px;height:60px;border:0;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 18px 42px rgba(12,31,85,.28),0 4px 10px rgba(12,31,85,.14);transition:transform .2s ease,background .2s ease}
+.filters-fab:hover{background:var(--red);transform:translateY(-2px) scale(1.04)}
 .filters-fab svg{width:26px;height:26px}
 .filters-fab .icon-close{display:none}
 .filters-fab[aria-expanded="true"] .icon-filters{display:none}

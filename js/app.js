@@ -2475,6 +2475,15 @@ $('#btnExportKmz').onclick = exportKmz;
 const filtersFab = $('#filtersFab'), filtersPanel = $('#filtersPanel');
 const setFiltrosOpen = open => { filtersPanel.hidden = !open; filtersFab.setAttribute('aria-expanded', String(open)); };
 filtersFab.onclick = () => setFiltrosOpen(filtersPanel.hidden);
+/* o dock nasce logo abaixo da linha vermelha do cabeçalho (altura dele varia
+   com a quebra dos KPIs) — recalcula no carregamento e no resize */
+const posicionarFiltrosFab = () => {
+  const cab = document.querySelector('.top');
+  if (cab) $('.filters-fab-dock').style.top = (cab.offsetHeight + 8) + 'px';
+};
+posicionarFiltrosFab();
+window.addEventListener('resize', posicionarFiltrosFab);
+window.addEventListener('load', posicionarFiltrosFab);
 $('#filtersClose').onclick = () => setFiltrosOpen(false);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !filtersPanel.hidden) setFiltrosOpen(false); });
 
