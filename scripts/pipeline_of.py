@@ -475,7 +475,8 @@ def ler_coordenadas_sql():
         col_ordem = ', c.Ordem AS ordem' if tem_ordem else ''
         cur.execute(f'SELECT c.{fk} AS Id_empreendimento, '
                     f'c.Latitude AS latitude, c.Longitude AS longitude{col_ordem}, '
-                    f'ec.Empreendimento AS empreendimento, b.Nome AS bairro '
+                    f'ec.Empreendimento AS empreendimento, b.Nome AS bairro, '
+                    f'ec.IPTU AS iptu, ec.Complemento AS complemento '
                     f'FROM dbo.{tabela} c '
                     f'LEFT JOIN dbo.EmpreendimentoCadastro ec ON ec.Id = c.{fk} '
                     f'LEFT JOIN dbo.Bairro b ON b.Id = ec.BairroId')
