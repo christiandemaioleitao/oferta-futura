@@ -781,6 +781,11 @@ Endereço: ${texto}` }]);
     const q = { iptu: textKey(j.iptu || ''), bairro: j.bairro ? bairroKey(j.bairro) : '',
                 quadra: textKey(j.quadra || '').replace(/\s+/g, ''), lote: textKey(j.lote || '') };
     if (!(q.iptu || q.bairro || q.quadra || q.lote)) { tsDestacar([]); tsStatus('Nenhum imóvel correspondente encontrado'); return; }
+    /* o portal raramente tem lote no complemento: se o lote da IA não casa com
+       nenhum terreno, cai um nível (bairro+quadra) em vez de responder vazio */
+    if (!terrenoConsultar(tsIndex, q).length && q.lote) {
+      q = { ...q, lote: '' };
+    }
     tsAplicar(q);
   } catch (err) {
     tsStatus('BUSCA POR ENDEREÇO FALHOU: ' + (err.message || err));
