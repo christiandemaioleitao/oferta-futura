@@ -644,25 +644,25 @@ def gerar_dados(header, linhas, fonte, sem_previsao=None, coordenadas=None):
             except (TypeError, ValueError, KeyError):
                 continue
         # [id, vértices, nome do portal, bairro do portal, iptu, complemento] — o nome
-                # vem junto porque um terreno pode não estar na projeção do dashboard e o front
-                # não teria por quem casar o id (popup ficaria "Terreno #328" sem o nome).
-                # iptu/complemento alimentam a busca de terrenos no mapa (IPTU e lote);
-                # o front tolera registros de 4 posições (snapshot manual antigo).
-                nomes = {}
-                for c in coordenadas:
-                    eid = c.get('id_empreendimento')
-                    if eid is None:
-                        continue
-                    try:
-                        nomes[int(float(eid))] = (str(c.get('empreendimento') or ''),
-                                                  str(c.get('bairro') or ''),
-                                                  c.get('iptu') or None,
-                                                  str(c.get('complemento') or ''))
-                    except (TypeError, ValueError):
-                        continue
-                coord = [[eid, verts, nomes.get(eid, ('', '', None, ''))[0], nomes.get(eid, ('', '', None, ''))[1],
-                          nomes.get(eid, ('', '', None, ''))[2], nomes.get(eid, ('', '', None, ''))[3]]
-                         for eid, verts in sorted(por_emp.items())]
+        # vem junto porque um terreno pode não estar na projeção do dashboard e o front
+        # não teria por quem casar o id (popup ficaria "Terreno #328" sem o nome).
+        # iptu/complemento alimentam a busca de terrenos no mapa (IPTU e lote);
+        # o front tolera registros de 4 posições (snapshot manual antigo).
+        nomes = {}
+        for c in coordenadas:
+            eid = c.get('id_empreendimento')
+            if eid is None:
+                continue
+            try:
+                nomes[int(float(eid))] = (str(c.get('empreendimento') or ''),
+                                          str(c.get('bairro') or ''),
+                                          c.get('iptu') or None,
+                                          str(c.get('complemento') or ''))
+            except (TypeError, ValueError):
+                continue
+        coord = [[eid, verts, nomes.get(eid, ('', '', None, ''))[0], nomes.get(eid, ('', '', None, ''))[1],
+                  nomes.get(eid, ('', '', None, ''))[2], nomes.get(eid, ('', '', None, ''))[3]]
+                 for eid, verts in sorted(por_emp.items())]
     data = {'geradoEm': datetime.date.today().isoformat(), 'fonte': fonte,
             'empreendimentos': list(emps.values()), 'historico': historico,
             'semPrevisao': sem_prev, 'mercado': mercado_emps,
