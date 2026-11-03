@@ -123,6 +123,17 @@
         <div class="map-legend mono" id="mapLayersPanel" hidden>
           <div class="search-box" style="padding:5px 9px" title="Busca quadra ou lote no cadastro da Prefeitura (ex.: QD 65 · LT 12 · QD 65 LT 12) e filtra os terrenos monitorados"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="loteSearch" placeholder="QD / LOTE" class="mono" /></div>
           <div class="search-box" style="padding:5px 9px" title="Cola uma coordenada (ex.: -16.7371172, -49.248412) e voa até ela"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" stroke="currentColor" stroke-width="2"/></svg><input type="search" id="coordSearch" placeholder="LAT, LNG" class="mono" /></div>
+          <div class="ts-box" id="terrenoBusca">
+            <input type="search" id="iptuSearch" placeholder="IPTU DO TERRENO" class="mono" title="Busca o terreno pelo número de IPTU cadastrado no Portal" />
+            <select id="tsBairro" class="mono" title="Bairros com terrenos no Portal"><option value="">TODOS OS BAIRROS</option></select>
+            <select id="tsQuadra" class="mono" title="Quadras disponíveis no bairro escolhido"><option value="">TODAS AS QUADRAS</option></select>
+            <select id="tsLote" class="mono" title="Lotes disponíveis no bairro/quadra escolhidos"><option value="">TODOS OS LOTES</option></select>
+            <div class="ts-ia">
+              <input type="search" id="tsEndereco" placeholder="ENDEREÇO (IA)" class="mono" title="Descreve o endereço em texto livre; a IA do chat converte em bairro/quadra/lote ou IPTU e seleciona o terreno no mapa" />
+              <button type="button" id="tsBuscarIA" class="mono" title="Converter o endereço em consulta com a IA">IA</button>
+            </div>
+            <div class="ts-foot"><output id="tsStatus" class="mono" aria-live="polite"></output><button type="button" id="tsLimpar" class="mono">LIMPAR</button></div>
+          </div>
           <label><input type="checkbox" id="lyrEmp" checked /><i class="dot dot--red"></i>OFERTA FUTURA</label>
           <span style="display:inline-flex;align-items:center;gap:6px"><i class="dot" style="background:#0C1F55"></i>EBM</span>
           <label><input type="checkbox" id="lyrTerrenos" checked /><i class="dot dot--poly"></i>TERRENOS</label>
@@ -423,12 +434,21 @@
 <div class="pdf-overlay" id="pdfOverlay" hidden><div class="pdf-overlay__box"><div class="spinner"></div><p class="mono" id="pdfStatus">GERANDO RELATÓRIO…</p></div></div>
 
 </div><!-- dashboardRoot: só é exibido depois da validação SG -->
+<<<<<<< HEAD
 <script type="text/plain" data-sg-src="data/dados_of.js?v=20261103-1824"></script>
 <script type="text/plain" data-sg-src="data/mapa_of.js?v=20261103-1824"></script>
 <script type="text/plain" data-sg-src="data/bairros_of.js?v=20261103-1824"></script>
 <script type="text/plain" data-sg-src="data/portal_coordenadas.js?v=20261103-1824"></script>
 <!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
 <script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261103-1824"></script>
+=======
+<script type="text/plain" data-sg-src="data/dados_of.js?v=20261103-1524"></script>
+<script type="text/plain" data-sg-src="data/mapa_of.js?v=20261103-1524"></script>
+<script type="text/plain" data-sg-src="data/bairros_of.js?v=20261103-1524"></script>
+<script type="text/plain" data-sg-src="data/portal_coordenadas.js?v=20261103-1524"></script>
+<!-- só o índice das camadas (leve); a geometria de cada uma é baixada ao ligar a camada -->
+<script type="text/plain" data-sg-src="data/plano_diretor.js?v=20261103-1524"></script>
+>>>>>>> 8d97521 (mapa: busca de terrenos do portal (IPTU, cascata bairro→quadra→lote e endereço via IA) + stamp)
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
@@ -436,7 +456,12 @@
 <script src="js/vendor/polygon-clipping-0.15.7.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<<<<<<< HEAD
 <script type="text/plain" data-sg-src="js/app.js?v=20261103-1824"></script>
 <script src="js/security-gate.js?v=20261103-1824"></script>
+=======
+<script type="text/plain" data-sg-src="js/app.js?v=20261103-1524"></script>
+<script src="js/security-gate.js?v=20261103-1524"></script>
+>>>>>>> 8d97521 (mapa: busca de terrenos do portal (IPTU, cascata bairro→quadra→lote e endereço via IA) + stamp)
 </body>
 </html>

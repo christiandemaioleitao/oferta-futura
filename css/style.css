@@ -150,6 +150,19 @@ button{font-family:inherit}
 #mapLayersPanel{flex-basis:100%}
 .map-layers-toggle{border:1px solid var(--hair);background:var(--paper);color:var(--navy);border-radius:8px;width:28px;height:28px;font-size:15px;line-height:1;cursor:pointer;flex:0 0 auto}
 .map-layers-toggle:hover{border-color:var(--navy)}
+/* busca de terrenos do portal (IPTU/cascata bairro→quadra→lote/endereço via IA) */
+.ts-box{flex-basis:100%;display:flex;flex-direction:column;gap:5px;padding:6px 9px 8px;border-top:1px solid var(--hair)}
+.ts-box input,.ts-box select{width:100%;background:var(--paper);border:1px solid var(--hair);border-radius:7px;padding:4px 8px;font-family:var(--font-mono);font-size:11px;color:var(--navy)}
+.ts-box input:focus,.ts-box select:focus{outline:none;border-color:var(--navy-500)}
+.ts-ia{display:flex;gap:5px}
+.ts-ia input{flex:1;min-width:0}
+.ts-ia button{border:0;background:var(--navy);color:#fff;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;border-radius:7px;padding:4px 11px;cursor:pointer;flex:0 0 auto}
+.ts-ia button:hover{background:var(--red)}
+.ts-ia button:disabled{opacity:.55;cursor:default}
+.ts-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ts-foot output{font-size:10px;letter-spacing:.04em;color:var(--red);flex:1;min-width:0}
+.ts-foot button{border:0;background:none;color:var(--navy);font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;cursor:pointer}
+.ts-foot button:hover{color:var(--red)}
 .map-legend label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .map-legend input{accent-color:var(--red)}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block}

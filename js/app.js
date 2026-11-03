@@ -618,6 +618,193 @@ function renderPortalLayer() {
       .addTo(portalLayer);
   });
 }
+/* ---------- busca de terrenos do portal (IPTU · bairro · quadra · lote · endereço via IA) ----------
+   Bloco no painel "+ CAMADAS" que seleciona/destaca terrenos da camada PORTAL:
+   - IPTU em texto livre (campo IPTU do cadastro, vindo do pipeline em portalCoordenadas[4]);
+   - cascata bairro → quadra → lote: as opções de quadra mostram só quadras com terrenos
+     no bairro escolhido e as de lote só lotes da quadra (ou do bairro, sem quadra);
+   - endereço em texto livre: a MESMA IA do chat (callAIProvider — chave do usuário no
+     localStorage) converte o texto em {bairro, quadra, lote ou IPTU} e a consulta
+     destaca o terreno; sem correspondência: "Nenhum imóvel correspondente encontrado".
+   O destaque é um layer vermelho em pane própria acima da camada PORTAL (verde). */
+const TERRENO_QD_RE = /(?:^|[^A-Z0-9])(?:QD|QUADRA)\.?\s*([A-Z0-9]+(?:\s?[-\/]\s?[A-Z0-9]+)*)/;
+const TERRENO_LOTE_RE = /(?:^|[^A-Z0-9])(?:LOTES?|LT)\.?\s*([^;]*)/;
+/* quadra do terreno: token após QD/QUADRA no nome do portal ou no complemento —
+   "QD 252, MARISTA - TOP" → "252", "QD G12" → "G12", "QD B-01 (LOTE AREA)" → "B-01",
+   "Quadra ÁREA" → "AREA" (sem acento, via textKey) */
+function terrenoQuadraDe(nome, complemento) {
+  for (const t of [nome, complemento]) {
+    const m = TERRENO_QD_RE.exec(textKey(t));
+    if (m && m[1]) return m[1].replace(/\s+/g, '');
+  }
+  return '';
+}
+/* lotes do complemento: "Lotes 3, 5, 7 e 9" → ["3","5","7","9"], "Lote AREA04" → ["AREA04"] */
+function terrenoLotesDe(complemento) {
+  const m = TERRENO_LOTE_RE.exec(textKey(complemento));
+  if (!m) return [];
+  /* captura até o fim da frase; dos tokens seguintes ao primeiro, só entram os que
+     parecem código de lote (têm dígito) — descarta "Setor CH Santa Rita" etc. */
+  const tokens = m[1].split(/\s*,\s*|\s+E\s+/).map(t => t.replace(/[^A-Z0-9\/-]/g, ''));
+  const out = [];
+  tokens.forEach((t, i) => { if (t && (i === 0 || /\d/.test(t))) out.push(t); });
+  return out;
+}
+/* índice da camada PORTAL para busca: entries (um por terreno, com bairroKey/quadra/
+   lotes/iptuKey) e bairros (bairroKey → {nome, quadras, lotes}) que alimenta a cascata.
+   Registros têm 4 posições (snapshot manual antigo) ou 6 (pipeline: + iptu, complemento). */
+function terrenoIndexar(base) {
+  const bairros = new Map();
+  const entries = [];
+  (base || []).forEach(rec => {
+    if (!Array.isArray(rec) || !Array.isArray(rec[1]) || !rec[1].length) return;
+    const nome = String(rec[2] || ''), bairro = String(rec[3] || '');
+    const iptu = String(rec[4] ?? ''), complemento = String(rec[5] ?? '');
+    const bk = bairro ? bairroKey(bairro) : '';
+    const entry = { rec, nome, bairro, iptu, complemento, iptuKey: textKey(iptu), bk,
+                    quadra: terrenoQuadraDe(nome, complemento), lotes: terrenoLotesDe(complemento) };
+    if (bk) {
+      let b = bairros.get(bk);
+      if (!b) bairros.set(bk, b = { nome: bairro.trim(), quadras: new Set(), lotes: new Set() });
+      if (entry.quadra) b.quadras.add(entry.quadra);
+      entry.lotes.forEach(l => b.lotes.add(l));
+    }
+    entries.push(entry);
+  });
+  return { entries, bairros };
+}
+/* consulta estruturada {iptu, bairro, quadra, lote} (chaves já normalizadas) → terrenos.
+   Consulta sem nenhum critério casa nada (não "todos"). */
+function terrenoConsultar(index, q) {
+  if (!q || !(q.iptu || q.bairro || q.quadra || q.lote)) return [];
+  return index.entries.filter(e => {
+    if (q.iptu && !(e.iptuKey && (e.iptuKey === q.iptu || e.iptuKey.includes(q.iptu)))) return false;
+    if (q.bairro && e.bk !== q.bairro) return false;
+    if (q.quadra && e.quadra !== q.quadra) return false;
+    if (q.lote && !e.lotes.includes(q.lote)) return false;
+    return true;
+  });
+}
+let tsLayer = null, tsIndex = null;
+function tsStatus(msg) { const o = $('#tsStatus'); if (o) o.textContent = msg || ''; }
+function tsDestacar(entries) {
+  if (!tsLayer) return;
+  tsLayer.clearLayers();
+  entries.forEach(e => {
+    const meta = [e.bairro, e.quadra ? 'QD ' + e.quadra : '',
+                  e.lotes.length ? 'LT ' + e.lotes.join(', ') : '',
+                  e.iptu ? 'IPTU ' + e.iptu : ''].filter(Boolean).join(' · ');
+    L.polygon(e.rec[1], { pane: 'tsDestaque', color: RED, weight: 2.8, fillColor: RED, fillOpacity: .45 })
+      .bindPopup(`<div class="map-pop"><b>${escapeHtml(e.nome || ('Terreno #' + e.rec[0]))}</b><span class="mono">${escapeHtml(meta ? meta + ' · ' : '')}PORTAL DA INTELIGÊNCIA</span></div>`)
+      .addTo(tsLayer);
+  });
+  if (entries.length) {
+    const pts = [];
+    entries.forEach(e => e.rec[1].forEach(c => pts.push([c[0], c[1]])));
+    map.fitBounds(L.latLngBounds(pts).pad(.3));
+    // contexto: liga a camada PORTAL por baixo do destaque se estiver desligada
+    const chk = $('#lyrPortal');
+    if (chk && !chk.checked) { chk.checked = true; renderPortalLayer(); map.addLayer(portalLayer); }
+  }
+}
+function tsAplicar(qManual) {
+  if (!tsIndex) return;
+  const q = qManual || {
+    iptu: textKey($('#iptuSearch')?.value || ''),
+    bairro: $('#tsBairro')?.value || '',
+    quadra: $('#tsQuadra')?.value || '',
+    lote: $('#tsLote')?.value || '',
+  };
+  const achou = terrenoConsultar(tsIndex, q);
+  tsDestacar(achou);
+  const criterio = q.iptu || q.bairro || q.quadra || q.lote;
+  if (!criterio) tsStatus('');
+  else if (!achou.length) tsStatus('Nenhum imóvel correspondente encontrado');
+  else tsStatus(`${achou.length} IMÓVEL(IS) SELECIONADO(S) NO MAPA`);
+}
+function tsPreencherBairros() {
+  const selB = $('#tsBairro');
+  if (!selB || !tsIndex) return;
+  const lista = [...tsIndex.bairros.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+  selB.innerHTML = '<option value="">TODOS OS BAIRROS</option>' +
+    lista.map(b => `<option value="${escapeHtml(bairroKey(b.nome))}">${escapeHtml(b.nome)}</option>`).join('');
+}
+/* cascata: quadra mostra só quadras do bairro escolhido; lote só lotes da quadra
+   (ou todos os lotes do bairro, quando nenhuma quadra está marcada) */
+function tsCascata() {
+  if (!tsIndex) return;
+  const selQ = $('#tsQuadra'), selL = $('#tsLote'), bk = $('#tsBairro')?.value || '';
+  if (!selQ || !selL) return;
+  const quadraSel = selQ.value;
+  let quadras = [], lotes = [];
+  if (bk) {
+    const b = tsIndex.bairros.get(bk);
+    if (b) {
+      quadras = [...b.quadras];
+      lotes = quadraSel
+        ? [...new Set(tsIndex.entries.filter(e => e.bk === bk && e.quadra === quadraSel).flatMap(e => e.lotes))]
+        : [...b.lotes];
+    }
+  } else {
+    quadras = [...new Set(tsIndex.entries.filter(e => e.quadra).map(e => e.quadra))];
+    lotes = quadraSel
+      ? [...new Set(tsIndex.entries.filter(e => e.quadra === quadraSel).flatMap(e => e.lotes))]
+      : [...new Set(tsIndex.entries.flatMap(e => e.lotes))];
+  }
+  quadras.sort(); lotes.sort();
+  selQ.innerHTML = '<option value="">TODAS AS QUADRAS</option>' +
+    quadras.map(q => `<option value="${escapeHtml(q)}">QD ${escapeHtml(q)}</option>`).join('');
+  selL.innerHTML = '<option value="">TODOS OS LOTES</option>' +
+    lotes.map(l => `<option value="${escapeHtml(l)}">LT ${escapeHtml(l)}</option>`).join('');
+  if (quadras.includes(quadraSel)) selQ.value = quadraSel;
+}
+/* endereço em texto livre → consulta estruturada pela mesma IA do chat (mesma chave,
+   mesmo modelo). O modelo deve responder SÓ o JSON; extraímos o primeiro {...}. */
+async function tsBuscarEndereco() {
+  const inp = $('#tsEndereco'), btn = $('#tsBuscarIA');
+  const texto = (inp?.value || '').trim();
+  if (!texto) return;
+  if (!aiConfig().key) { tsStatus('CADASTRE SUA CHAVE DE IA NO CHAT (🔑) PARA USAR A BUSCA POR ENDEREÇO'); return; }
+  btn.disabled = true;
+  tsStatus('CONSULTANDO A IA…');
+  try {
+    const out = await callAIProvider([{ role: 'user', content:
+`Converta o endereço abaixo em uma consulta estruturada de terrenos em Goiânia. Responda SOMENTE um JSON, sem texto fora dele, no formato {"iptu": string|null, "bairro": string|null, "quadra": string|null, "lote": string|null}. Regras: "quadra" é o código após QD/QUADRA no texto (ex.: "252", "G12", "B-01", "AREA"); "lote" é o código após LOTE/LOT; "bairro" é o setor/bairro do endereço (ex.: MARISTA, BUENO); use "iptu" apenas se o texto citar um número de IPTU. Não invente valores que não estejam no texto: campo sem valor = null.
+
+Endereço: ${texto}` }]);
+    const m = /\{[\s\S]*\}/.exec(out || '');
+    if (!m) throw new Error('a IA não devolveu uma consulta válida');
+    const j = JSON.parse(m[0]);
+    const q = { iptu: textKey(j.iptu || ''), bairro: j.bairro ? bairroKey(j.bairro) : '',
+                quadra: textKey(j.quadra || '').replace(/\s+/g, ''), lote: textKey(j.lote || '') };
+    if (!(q.iptu || q.bairro || q.quadra || q.lote)) { tsDestacar([]); tsStatus('Nenhum imóvel correspondente encontrado'); return; }
+    tsAplicar(q);
+  } catch (err) {
+    tsStatus('BUSCA POR ENDEREÇO FALHOU: ' + (err.message || err));
+  } finally { if (btn) btn.disabled = false; }
+}
+function initTerrenoBusca() {
+  tsIndex = terrenoIndexar((window.OF_DATA && OF_DATA.portalCoordenadas) || window.OF_PORTAL_COORDS);
+  if (!tsIndex.entries.length || !$('#tsBairro')) return;
+  map.createPane('tsDestaque');
+  map.getPane('tsDestaque').style.zIndex = 405; // acima da camada PORTAL (400), abaixo dos lotes do cadastro (410)
+  tsLayer = L.layerGroup().addTo(map);
+  tsPreencherBairros();
+  tsCascata();
+  $('#tsBairro').addEventListener('change', () => { tsCascata(); tsAplicar(); });
+  $('#tsQuadra').addEventListener('change', () => { tsCascata(); tsAplicar(); });
+  $('#tsLote').addEventListener('change', tsAplicar);
+  $('#iptuSearch').addEventListener('input', tsAplicar);
+  $('#tsLimpar').addEventListener('click', () => {
+    const val = id => { const el = $('#' + id); if (el) el.value = ''; };
+    val('iptuSearch'); val('tsEndereco');
+    ['#tsBairro', '#tsQuadra', '#tsLote'].forEach(s => { const el = $(s); if (el) el.value = ''; });
+    tsCascata(); tsDestacar([]); tsStatus('');
+  });
+  $('#tsBuscarIA')?.addEventListener('click', tsBuscarEndereco);
+  $('#tsEndereco')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); tsBuscarEndereco(); } });
+}
+
 function renderMap() {
   if (!map) return;
   updateBairroLayer();
@@ -962,6 +1149,7 @@ function initCadastroGyn() {
     coord.addEventListener('change', ir);
     coord.addEventListener('input', () => { if (!coord.value.trim()) irParaCoordenada(null); });
   }
+  initTerrenoBusca();
 }
 
 /* ---------- navegação por coordenada ---------- */
