@@ -709,7 +709,10 @@ function tsDestacar(entries) {
 }
 function tsAplicar(qManual) {
   if (!tsIndex) return;
-  const q = qManual || {
+  /* addEventListener passa o Event como 1º argumento: só aceita consulta
+     estruturada de verdade (com alguma das chaves), senão lê do DOM */
+  const manual = qManual && (qManual.iptu || qManual.bairro || qManual.quadra || qManual.lote) ? qManual : null;
+  const q = manual || {
     iptu: textKey($('#iptuSearch')?.value || ''),
     bairro: $('#tsBairro')?.value || '',
     quadra: $('#tsQuadra')?.value || '',
@@ -793,8 +796,8 @@ function initTerrenoBusca() {
   tsCascata();
   $('#tsBairro').addEventListener('change', () => { tsCascata(); tsAplicar(); });
   $('#tsQuadra').addEventListener('change', () => { tsCascata(); tsAplicar(); });
-  $('#tsLote').addEventListener('change', tsAplicar);
-  $('#iptuSearch').addEventListener('input', tsAplicar);
+  $('#tsLote').addEventListener('change', () => tsAplicar());
+  $('#iptuSearch').addEventListener('input', () => tsAplicar());
   $('#tsLimpar').addEventListener('click', () => {
     const val = id => { const el = $('#' + id); if (el) el.value = ''; };
     val('iptuSearch'); val('tsEndereco');
