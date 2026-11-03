@@ -778,8 +778,8 @@ Endereço: ${texto}` }]);
     const m = /\{[\s\S]*\}/.exec(out || '');
     if (!m) throw new Error('a IA não devolveu uma consulta válida');
     const j = JSON.parse(m[0]);
-    const q = { iptu: textKey(j.iptu || ''), bairro: j.bairro ? bairroKey(j.bairro) : '',
-                quadra: textKey(j.quadra || '').replace(/\s+/g, ''), lote: textKey(j.lote || '') };
+    let q = { iptu: textKey(j.iptu || ''), bairro: j.bairro ? bairroKey(j.bairro) : '',
+              quadra: textKey(j.quadra || '').replace(/\s+/g, ''), lote: textKey(j.lote || '') };
     if (!(q.iptu || q.bairro || q.quadra || q.lote)) { tsDestacar([]); tsStatus('Nenhum imóvel correspondente encontrado'); return; }
     /* o portal raramente tem lote no complemento: se o lote da IA não casa com
        nenhum terreno, cai um nível (bairro+quadra) em vez de responder vazio */
