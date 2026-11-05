@@ -154,6 +154,12 @@ button{font-family:inherit}
 .ts-box{flex-basis:100%;display:flex;flex-direction:column;gap:5px;padding:6px 9px 8px;border-top:1px solid var(--hair)}
 .ts-box input,.ts-box select{width:100%;background:var(--paper);border:1px solid var(--hair);border-radius:7px;padding:4px 8px;font-family:var(--font-mono);font-size:11px;color:var(--navy)}
 .ts-box input:focus,.ts-box select:focus{outline:none;border-color:var(--navy-500)}
+/* combobox do cascata bairro→quadra→lote: digitação filtra a lista incrementalmente */
+.ts-cmb{position:relative}
+.ts-cmb__pop{position:absolute;top:100%;left:0;right:0;z-index:30;background:var(--paper);border:1px solid var(--hair);border-radius:7px;box-shadow:0 6px 18px rgba(12,31,85,.14);max-height:190px;overflow:auto;display:none}
+.ts-cmb.open .ts-cmb__pop{display:block}
+.ts-cmb__pop button{display:block;width:100%;text-align:left;background:none;border:0;padding:5px 9px;font-family:var(--font-mono);font-size:11px;color:var(--navy);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ts-cmb__pop button:hover,.ts-cmb__pop button.sel{background:var(--navy);color:#fff}
 .ts-ia{display:flex;gap:5px}
 .ts-ia input{flex:1;min-width:0}
 .ts-ia button{border:0;background:var(--navy);color:#fff;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;border-radius:7px;padding:4px 11px;cursor:pointer;flex:0 0 auto}

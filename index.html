@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="css/style.css?v=20261103-1715" />
+<link rel="stylesheet" href="css/style.css?v=20261105-1800" />
 </head>
 <body>
 <main class="sg-gate" id="sgGate">
@@ -125,9 +125,9 @@
           <div class="search-box" style="padding:5px 9px" title="Cola uma coordenada (ex.: -16.7371172, -49.248412) e voa até ela"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" stroke="currentColor" stroke-width="2"/></svg><input type="search" id="coordSearch" placeholder="LAT, LNG" class="mono" /></div>
           <div class="ts-box" id="terrenoBusca">
             <input type="search" id="iptuSearch" placeholder="IPTU DO TERRENO" class="mono" title="Busca o terreno pelo número de IPTU cadastrado no Portal" />
-            <select id="tsBairro" class="mono" title="Bairros com terrenos no Portal"><option value="">TODOS OS BAIRROS</option></select>
-            <select id="tsQuadra" class="mono" title="Quadras disponíveis no bairro escolhido"><option value="">TODAS AS QUADRAS</option></select>
-            <select id="tsLote" class="mono" title="Lotes disponíveis no bairro/quadra escolhidos"><option value="">TODOS OS LOTES</option></select>
+            <div class="ts-cmb"><input type="search" id="tsBairro" class="mono" placeholder="TODOS OS BAIRROS" title="Bairros com terrenos no Portal — digite para filtrar (ex.: 'bu')" autocomplete="off" data-key="" /><div class="ts-cmb__pop"></div></div>
+            <div class="ts-cmb"><input type="search" id="tsQuadra" class="mono" placeholder="TODAS AS QUADRAS" title="Quadras disponíveis no bairro escolhido — digite para filtrar" autocomplete="off" data-key="" /><div class="ts-cmb__pop"></div></div>
+            <div class="ts-cmb"><input type="search" id="tsLote" class="mono" placeholder="TODOS OS LOTES" title="Lotes disponíveis no bairro/quadra escolhidos — digite para filtrar" autocomplete="off" data-key="" /><div class="ts-cmb__pop"></div></div>
             <div class="ts-ia">
               <input type="search" id="tsEndereco" placeholder="ENDEREÇO (IA)" class="mono" title="Descreve o endereço em texto livre; a IA do chat converte em bairro/quadra/lote ou IPTU e seleciona o terreno no mapa" />
               <button type="button" id="tsBuscarIA" class="mono" title="Converter o endereço em consulta com a IA">IA</button>
@@ -447,7 +447,7 @@
 <script src="js/vendor/polygon-clipping-0.15.7.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script type="text/plain" data-sg-src="js/app.js?v=20261103-1715"></script>
+<script type="text/plain" data-sg-src="js/app.js?v=20261105-1800"></script>
 <script src="js/security-gate.js?v=20261103-1715"></script>
 </body>
 </html>

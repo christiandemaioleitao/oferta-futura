@@ -12,8 +12,8 @@ const bkEnd = source.indexOf('let bairroRenderer');
 const secStart = source.indexOf('const TERRENO_QD_RE');
 const secEnd = source.indexOf('let tsLayer = null');
 const snippet = [linhaTextKey, source.slice(bkStart, bkEnd), source.slice(secStart, secEnd)].join('\n');
-const ctx = vm.runInNewContext(`${snippet}\n({ textKey, bairroKey, terrenoQuadraDe, terrenoLotesDe, terrenoIndexar, terrenoConsultar })`, {});
-const { bairroKey, terrenoQuadraDe, terrenoLotesDe, terrenoIndexar, terrenoConsultar } = ctx;
+const ctx = vm.runInNewContext(`${snippet}\n({ textKey, bairroKey, terrenoQuadraDe, terrenoLotesDe, terrenoQuadraEq, terrenoLev, terrenoBairroCasa, terrenoIndexar, terrenoConsultar })`, {});
+const { bairroKey, terrenoQuadraDe, terrenoLotesDe, terrenoQuadraEq, terrenoLev, terrenoBairroCasa, terrenoIndexar, terrenoConsultar } = ctx;
 /* arrays vindos do realm do vm não passam em deepEqual: convertemos com Array.from */
 const ids = (res) => Array.from(res, e => e.rec[0]);
 const lotes = (res) => Array.from(res);
@@ -66,4 +66,42 @@ test('consulta por bairro, quadra e lote; IPTU por igualdade/inclusão', () => {
   assert.deepEqual(ids(terrenoConsultar(idx, {})), []);
   // quadra sem bairro casa em qualquer bairro
   assert.deepEqual(ids(terrenoConsultar(idx, { quadra: '550' })), [751]);
+});
+test('quadra: zero à esquerda da IA ("08") casa com a base ("8") e vice-versa', () => {
+  assert.ok(terrenoQuadraEq('08', '8'));
+  assert.ok(terrenoQuadraEq('8', '08'));
+  assert.ok(terrenoQuadraEq('008', '8'));
+  assert.ok(terrenoQuadraEq('B-01', 'B-01'));
+  assert.ok(!terrenoQuadraEq('B-01', 'B-1'));
+  assert.ok(!terrenoQuadraEq('252', '244'));
+});
+test('bairro por tokens em todos os campos: "Solar Bougainville" acha PORTO BOUGAINVILLE (nome), não só bairro', () => {
+  const base = [
+    [444, [[-16.70, -49.37]], 'PORTO BOUGAINVILLE II - VILA BRASIL', 'FAZENDA SÃO JOSE', '33801805000000', ''],
+    [446, [[-16.71, -49.37]], 'PORTO BOUGAINVILLE 1', 'FAZENDA SÃO JOSE', '33801804000000', ''],
+    [232, [[-16.72, -49.35]], 'QD 8, RESIDENCIAL FLORIDA - VEGA', 'RESIDENCIAL FLORIDA', '33800001000000', ''],
+  ];
+  const idx = terrenoIndexar(base);
+  const bk = bairroKey('Solar Bougainville');
+  // casamento por token do nome do loteamento em TODOS os campos (aqui, o nome do portal)
+  assert.deepEqual(ids(terrenoConsultar(idx, { bairro: bk })), [444, 446]);
+  // "solar bougainville quadra 8 lote 44": quadra/lote não existem no portal para esses
+  // registros — quadra 8 só casa FLORIDA (e bougainville não), então a consulta estrita
+  // dá vazio e a IA cai para só-bairro no front
+  assert.deepEqual(ids(terrenoConsultar(idx, { bairro: bk, quadra: '08', lote: '44' })), []);
+  // só quadra 8 (sem bairro) casa o FLORIDA
+  assert.deepEqual(ids(terrenoConsultar(idx, { quadra: '8' })), [232]);
+});
+test('bairro por grafia errada: "bouganville" casa "BOUGAINVILLE" por similaridade', () => {
+  const base = [
+    [446, [[-16.71, -49.37]], 'PORTO BOUGAINVILLE 1', 'FAZENDA SÃO JOSE', '33801804000000', ''],
+  ];
+  const idx = terrenoIndexar(base);
+  const bk = bairroKey('qd 8 lote 44 bouganville'.replace(/qd\s*8\s*lote\s*44\s*/i, ''));
+  assert.ok(idx.bairros.size === 1);   // FAZENDA SÃO JOSE indexada
+  assert.deepEqual(ids(terrenoConsultar(idx, { bairro: bk })), [446]);
+  assert.ok(terrenoBairroCasa(idx.entries[0], 'BOUGANVILLE'));
+  assert.ok(terrenoBairroCasa(idx.entries[0], 'SOLAR BOUGANVILLE'));
+  // grafia muito distante não casa
+  assert.ok(!terrenoBairroCasa(idx.entries[0], 'MARISTA'));
 });

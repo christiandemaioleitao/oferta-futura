@@ -673,14 +673,48 @@ function terrenoIndexar(base) {
   });
   return { entries, bairros };
 }
+/* quadra: comparação tolerante a zeros à esquerda ("08" casa com "8", "B-01" fica literal) */
+function terrenoQuadraEq(a, b) {
+  const na = String(a || '').replace(/^0+(?=\d)/, ''), nb = String(b || '').replace(/^0+(?=\d)/, '');
+  return na === nb;
+}
+/* distância de edição simples (só para tokens longos: "BOUGANVILLE" ≈ "BOUGAINVILLE") */
+function terrenoLev(a, b) {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 3) return 99;
+  let ant = Array.from({ length: n + 1 }, (_, i) => i), cur = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(ant[j] + 1, cur[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    [ant, cur] = [cur, ant];
+  }
+  return ant[n];
+}
+function terrenoTokenCerca(tok, hay) {
+  const tol = tok.length >= 8 ? 2 : 1;
+  return hay.split(/\s+/).some(w => terrenoLev(w, tok) <= tol);
+}
+/* bairro/loteamento: casa exata na chave de bairro OU por tokens em TODOS os campos
+   (nome, bairro, complemento, IPTU). O usuário fala "Solar Bougainville", mas a base
+   tem PORTO BOUGAINVILLE no nome e FAZENDA SÃO JOSE no bairro — o token do nome do
+   loteamento resolve; grafia errada entra por similaridade (tokens ≥ 5 letras). */
+function terrenoBairroCasa(e, qk) {
+  if (!qk) return true;
+  if (e.bk === qk) return true;
+  const hay = textKey([e.nome, e.bairro, e.complemento, e.iptu].join(' '));
+  const toks = qk.split(/\s+/).filter(t => t.length >= 5);
+  if (!toks.length) return false;
+  if (toks.every(t => hay.includes(t))) return true;
+  return toks.some(t => hay.includes(t) || terrenoTokenCerca(t, hay));
+}
 /* consulta estruturada {iptu, bairro, quadra, lote} (chaves já normalizadas) → terrenos.
    Consulta sem nenhum critério casa nada (não "todos"). */
 function terrenoConsultar(index, q) {
   if (!q || !(q.iptu || q.bairro || q.quadra || q.lote)) return [];
   return index.entries.filter(e => {
     if (q.iptu && !(e.iptuKey && (e.iptuKey === q.iptu || e.iptuKey.includes(q.iptu)))) return false;
-    if (q.bairro && e.bk !== q.bairro) return false;
-    if (q.quadra && e.quadra !== q.quadra) return false;
+    if (q.bairro && !terrenoBairroCasa(e, q.bairro)) return false;
+    if (q.quadra && !terrenoQuadraEq(e.quadra, q.quadra)) return false;
     if (q.lote && !e.lotes.includes(q.lote)) return false;
     return true;
   });
@@ -714,9 +748,9 @@ function tsAplicar(qManual) {
   const manual = qManual && (qManual.iptu || qManual.bairro || qManual.quadra || qManual.lote) ? qManual : null;
   const q = manual || {
     iptu: textKey($('#iptuSearch')?.value || ''),
-    bairro: $('#tsBairro')?.value || '',
-    quadra: $('#tsQuadra')?.value || '',
-    lote: $('#tsLote')?.value || '',
+    bairro: $('#tsBairro')?.dataset.key || '',
+    quadra: $('#tsQuadra')?.dataset.key || '',
+    lote: $('#tsLote')?.dataset.key || '',
   };
   const achou = terrenoConsultar(tsIndex, q);
   tsDestacar(achou);
@@ -725,42 +759,108 @@ function tsAplicar(qManual) {
   else if (!achou.length) tsStatus('Nenhum imóvel correspondente encontrado');
   else tsStatus(`${achou.length} IMÓVEL(IS) SELECIONADO(S) NO MAPA`);
 }
+/* opções dos comboboxes da cascata: [{v, label}] — v é a chave usada pela consulta */
+let tsOps = { bairro: [], quadra: [], lote: [] };
 function tsPreencherBairros() {
-  const selB = $('#tsBairro');
-  if (!selB || !tsIndex) return;
+  const inpB = $('#tsBairro');
+  if (!inpB || !tsIndex) return;
   const lista = [...tsIndex.bairros.values()].sort((a, b) => a.nome.localeCompare(b.nome));
-  selB.innerHTML = '<option value="">TODOS OS BAIRROS</option>' +
-    lista.map(b => `<option value="${escapeHtml(bairroKey(b.nome))}">${escapeHtml(b.nome)}</option>`).join('');
+  tsOps.bairro = [{ v: '', label: 'TODOS OS BAIRROS' }]
+    .concat(lista.map(b => ({ v: bairroKey(b.nome), label: b.nome })));
+  tsRenderCombo(inpB);
 }
 /* cascata: quadra mostra só quadras do bairro escolhido; lote só lotes da quadra
    (ou todos os lotes do bairro, quando nenhuma quadra está marcada) */
 function tsCascata() {
   if (!tsIndex) return;
-  const selQ = $('#tsQuadra'), selL = $('#tsLote'), bk = $('#tsBairro')?.value || '';
-  if (!selQ || !selL) return;
-  const quadraSel = selQ.value;
+  const inpQ = $('#tsQuadra'), inpL = $('#tsLote'), bk = $('#tsBairro')?.dataset.key || '';
+  if (!inpQ || !inpL) return;
+  const quadraSel = inpQ.dataset.key || '';
   let quadras = [], lotes = [];
   if (bk) {
     const b = tsIndex.bairros.get(bk);
     if (b) {
       quadras = [...b.quadras];
       lotes = quadraSel
-        ? [...new Set(tsIndex.entries.filter(e => e.bk === bk && e.quadra === quadraSel).flatMap(e => e.lotes))]
+        ? [...new Set(tsIndex.entries.filter(e => e.bk === bk && terrenoQuadraEq(e.quadra, quadraSel)).flatMap(e => e.lotes))]
         : [...b.lotes];
     }
   } else {
     quadras = [...new Set(tsIndex.entries.filter(e => e.quadra).map(e => e.quadra))];
     lotes = quadraSel
-      ? [...new Set(tsIndex.entries.filter(e => e.quadra === quadraSel).flatMap(e => e.lotes))]
+      ? [...new Set(tsIndex.entries.filter(e => terrenoQuadraEq(e.quadra, quadraSel)).flatMap(e => e.lotes))]
       : [...new Set(tsIndex.entries.flatMap(e => e.lotes))];
   }
   quadras.sort(); lotes.sort();
-  selQ.innerHTML = '<option value="">TODAS AS QUADRAS</option>' +
-    quadras.map(q => `<option value="${escapeHtml(q)}">QD ${escapeHtml(q)}</option>`).join('');
-  selL.innerHTML = '<option value="">TODOS OS LOTES</option>' +
-    lotes.map(l => `<option value="${escapeHtml(l)}">LT ${escapeHtml(l)}</option>`).join('');
-  if (quadras.includes(quadraSel)) selQ.value = quadraSel;
+  tsOps.quadra = [{ v: '', label: 'TODAS AS QUADRAS' }].concat(quadras.map(q => ({ v: q, label: 'QD ' + q })));
+  tsOps.lote = [{ v: '', label: 'TODOS OS LOTES' }].concat(lotes.map(l => ({ v: l, label: 'LT ' + l })));
+  /* seleção que deixou de existir na cascata nova volta ao "todos" */
+  if (quadraSel && !quadras.some(q => terrenoQuadraEq(q, quadraSel))) { inpQ.value = ''; inpQ.dataset.key = ''; }
+  const loteSel = inpL.dataset.key || '';
+  if (loteSel && !lotes.includes(loteSel)) { inpL.value = ''; inpL.dataset.key = ''; }
+  tsRenderCombo(inpQ); tsRenderCombo(inpL);
 }
+/* combobox: input de digitação com lista filtrada incrementalmente (sem acento,
+   case-insensitive), navegação por teclado (↑↓ Enter Esc) e seleção por clique */
+function tsRenderCombo(inp) {
+  const wrap = inp.closest('.ts-cmb'), pop = wrap && wrap.querySelector('.ts-cmb__pop');
+  if (!pop) return;
+  const filtro = textKey(inp.value);
+  const cur = inp.dataset.key || '';
+  const ops = (tsOps[inp.id.slice(2).toLowerCase()] || []).filter(o => o.v === cur || !filtro || textKey(o.label).includes(filtro));
+  pop.innerHTML = ops.map(o =>
+    `<button type="button" data-v="${escapeHtml(o.v)}" class="${o.v === cur ? 'sel' : ''}">${escapeHtml(o.label)}</button>`).join('');
+  inp.__tsOps = ops;
+}
+function tsComboAbrir(inp, abrir) {
+  const wrap = inp.closest('.ts-cmb');
+  if (!wrap) return;
+  wrap.classList.toggle('open', abrir);
+  if (abrir) tsRenderCombo(inp);
+}
+function tsComboPick(inp, v) {
+  const op = (inp.__tsOps || []).find(o => o.v === v);
+  if (!op) return;
+  inp.value = op.label;
+  inp.dataset.key = op.v;
+  tsComboAbrir(inp, false);
+  inp.dispatchEvent(new Event('change'));
+}
+function tsInitCombo(inp) {
+  if (!inp) return;
+  inp.addEventListener('focus', () => tsComboAbrir(inp, true));
+  inp.addEventListener('input', () => { inp.dataset.key = ''; tsComboAbrir(inp, true); });
+  inp.addEventListener('keydown', e => {
+    const pop = inp.closest('.ts-cmb')?.querySelector('.ts-cmb__pop');
+    const btns = pop ? [...pop.querySelectorAll('button')] : [];
+    let pos = btns.findIndex(b => b.classList.contains('sel'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      tsComboAbrir(inp, true);
+      pos = e.key === 'ArrowDown' ? Math.min(pos + 1, btns.length - 1) : Math.max(pos - 1, 0);
+      btns.forEach((b, i) => b.classList.toggle('sel', i === pos));
+      if (btns[pos]) btns[pos].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const alvo = btns[pos];
+      if (alvo) tsComboPick(inp, alvo.dataset.v);
+      else { /* texto digitado sem escolha: clica na única correspondência, se houver */
+        if (btns.length === 1) tsComboPick(inp, btns[0].dataset.v);
+        else tsComboAbrir(inp, false);
+      }
+    } else if (e.key === 'Escape') tsComboAbrir(inp, false);
+  });
+  const pop = inp.closest('.ts-cmb')?.querySelector('.ts-cmb__pop');
+  pop?.addEventListener('mousedown', e => {
+    const b = e.target.closest('button[data-v]');
+    if (!b) return;
+    e.preventDefault();   // mousedown, para não perder o foco antes do pick
+    tsComboPick(inp, b.dataset.v);
+  });
+  inp.addEventListener('blur', () => setTimeout(() => tsComboAbrir(inp, false), 120));
+}
+/* document click fecha comboboxes abertos (igual ao multiselect) */
+if (typeof document !== 'undefined') document.addEventListener('click', e => { if (!e.target.closest?.('.ts-cmb')) $$('.ts-cmb.open').forEach(w => w.classList.remove('open')); });
 /* endereço em texto livre → consulta estruturada pela mesma IA do chat (mesma chave,
    mesmo modelo). O modelo deve responder SÓ o JSON; extraímos o primeiro {...}. */
 async function tsBuscarEndereco() {
@@ -781,10 +881,14 @@ Endereço: ${texto}` }]);
     let q = { iptu: textKey(j.iptu || ''), bairro: j.bairro ? bairroKey(j.bairro) : '',
               quadra: textKey(j.quadra || '').replace(/\s+/g, ''), lote: textKey(j.lote || '') };
     if (!(q.iptu || q.bairro || q.quadra || q.lote)) { tsDestacar([]); tsStatus('Nenhum imóvel correspondente encontrado'); return; }
-    /* o portal raramente tem lote no complemento: se o lote da IA não casa com
-       nenhum terreno, cai um nível (bairro+quadra) em vez de responder vazio */
+    /* o portal raramente tem lote/quadra no complemento: se o lote da IA não casa,
+       cai um nível (bairro+quadra); se a quadra também não casa, cai para o
+       bairro/loteamento em vez de responder vazio */
     if (!terrenoConsultar(tsIndex, q).length && q.lote) {
       q = { ...q, lote: '' };
+    }
+    if (!terrenoConsultar(tsIndex, q).length && q.quadra) {
+      q = { ...q, quadra: '' };
     }
     tsAplicar(q);
   } catch (err) {
@@ -799,6 +903,7 @@ function initTerrenoBusca() {
   tsLayer = L.layerGroup().addTo(map);
   tsPreencherBairros();
   tsCascata();
+  ['#tsBairro', '#tsQuadra', '#tsLote'].forEach(s => tsInitCombo($(s)));
   $('#tsBairro').addEventListener('change', () => { tsCascata(); tsAplicar(); });
   $('#tsQuadra').addEventListener('change', () => { tsCascata(); tsAplicar(); });
   $('#tsLote').addEventListener('change', () => tsAplicar());
@@ -806,7 +911,10 @@ function initTerrenoBusca() {
   $('#tsLimpar').addEventListener('click', () => {
     const val = id => { const el = $('#' + id); if (el) el.value = ''; };
     val('iptuSearch'); val('tsEndereco');
-    ['#tsBairro', '#tsQuadra', '#tsLote'].forEach(s => { const el = $(s); if (el) el.value = ''; });
+    ['#tsBairro', '#tsQuadra', '#tsLote'].forEach(s => {
+      const el = $(s); if (!el) return;
+      el.value = ''; el.dataset.key = ''; tsRenderCombo(el);
+    });
     tsCascata(); tsDestacar([]); tsStatus('');
   });
   $('#tsBuscarIA')?.addEventListener('click', tsBuscarEndereco);
