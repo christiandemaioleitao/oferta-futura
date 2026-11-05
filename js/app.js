@@ -702,7 +702,7 @@ function terrenoBairroCasa(e, qk) {
   if (!qk) return true;
   if (e.bk === qk) return true;
   const hay = textKey([e.nome, e.bairro, e.complemento, e.iptu].join(' '));
-  const toks = qk.split(/\s+/).filter(t => t.length >= 5);
+  const toks = textKey(qk).split(/\s+/).filter(t => t.length >= 5);
   if (!toks.length) return false;
   if (toks.every(t => hay.includes(t))) return true;
   return toks.some(t => hay.includes(t) || terrenoTokenCerca(t, hay));
@@ -765,8 +765,16 @@ function tsPreencherBairros() {
   const inpB = $('#tsBairro');
   if (!inpB || !tsIndex) return;
   const lista = [...tsIndex.bairros.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+  /* além dos bairros, o nome do portal traz o LOTEAMENTO ("PORTO BOUGAINVILLE 1",
+     "QD 252, MARISTA - TOP" → "MARISTA"): digitar 'bu' encontra o loteamento mesmo
+     quando ele não é bairro de ninguém — a consulta por tokens casa no nome */
+  const jaTem = new Set(lista.map(b => textKey(b.nome)));
+  const lotes = [...new Set(tsIndex.entries
+    .map(e => String(e.nome || '').replace(/^QD\s*[^,]*,\s*/i, '').trim())
+    .filter(n => n && !jaTem.has(textKey(n))))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   tsOps.bairro = [{ v: '', label: 'TODOS OS BAIRROS' }]
-    .concat(lista.map(b => ({ v: bairroKey(b.nome), label: b.nome })));
+    .concat(lista.map(b => ({ v: bairroKey(b.nome), label: b.nome })))
+    .concat(lotes.map(n => ({ v: n, label: n })));
   tsRenderCombo(inpB);
 }
 /* cascata: quadra mostra só quadras do bairro escolhido; lote só lotes da quadra
